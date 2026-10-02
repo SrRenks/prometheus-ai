@@ -14,7 +14,7 @@ install time from whatever dsh version is installed on the machine.
 | `docs-gate-policy.mjs` | The fs seam, the doc resolution and the denials. |
 | `docs-gate-target.mjs` | Path and `bash` parsing: what counts as a target, and where the workspace boundary is. |
 | `docs-gate-tiers.mjs` | The doc registry, the tiers, and which tier a mutation needs. |
-| `docs-gate.spec.mjs` | Test suite for the gate. NOT installed into the preset directory. |
+| `docs-gate.spec.mjs`, `docs-gate-tiers.spec.mjs` | Test suites: gate behaviour, and the tier/language rules. NOT installed. |
 | `docs-gate.testkit.mjs` | Fake fs seam, fake agent and waterfall driver shared by the spec. NOT installed. |
 | `skill-search.mjs` | Replaces the ~9KB skill-catalog injection with `skill_search` / `skill_load`. |
 | `compaction-epoch.mjs` | Shared compaction-boundary helper for the hint and the gate. |
@@ -46,6 +46,12 @@ session has read what that call's TIER requires, plus the project's
   `core/docs/git-workflow.md`, `core/docs/development-workflow.md`.
 - `code` — source changes only: `core/docs/complexity.md`,
   `core/docs/maintainability.md`.
+- `language` — added on top when the changed file's language has a guide:
+  `core/docs/languages/{python,go,rust,kotlin}.md`. The guides are 800 to 1000
+  bytes each (Kotlin 3.8 KB) and they state HOW the complexity budgets are
+  enforced - `C901` max 10 for Python, `gocyclo` for Go, `clippy::too_many_lines`
+  at 60 for Rust. Requiring the budget without the tool configuration asks the
+  agent to honour a limit it cannot check.
 
 The tier is chosen by positive identification. A target is spared the code tier
 only when its extension says prose (`.md`, `.rst`, `.adoc`) or configuration
@@ -77,9 +83,8 @@ Design constraints, all of them load-bearing:
 - A subagent inherits its root session's evidence.
 - One `Set` lookup once the set has been read.
 
-Test it with `node --test agents/dsh/presets/renks/docs-gate.spec.mjs`. One case
-pins the enforced set to the set `instruction-hint.mjs` advertises, so the two
-cannot drift apart.
+Test it with `node --test 'agents/dsh/presets/renks/*.spec.mjs'`. One case pins the enforced
+set to the set `instruction-hint.mjs` advertises, so the two cannot drift apart.
 
 Workflow after a dsh update: `git pull && bash dsh/install.sh`.
 - Clean merge → new stock behavior + your three changes.

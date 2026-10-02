@@ -47,6 +47,7 @@ import {
   docsForTier,
   findWorkspaceRoot,
   isMutationTool,
+  languageForTarget,
   normalizePath,
   pathOf,
   requiredTier,
@@ -206,7 +207,8 @@ async function gateCall(store, log, exec, next) {
   // checkout that lacks the code-tier files from gating on them.
   const wanted = requiredTier(call.kind, call.target)
   const tier = state.ceiling !== undefined && tierOf(wanted) > tierOf(state.ceiling) ? state.ceiling : wanted
-  const requiredDocs = docsForTier(tier, state.docs)
+  const language = languageForTarget(call.target)
+  const requiredDocs = docsForTier(tier, state.docs, language)
   const missing = requiredDocs.filter(doc => !state.satisfied.has(doc.id))
   if (missing.length === 0) return next()
   return denyMutation(exec, call.kind, missing)

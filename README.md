@@ -222,6 +222,7 @@ friction with no return:
 |---|---|---|
 | `core` | any change, prose included | `principles.md`, `git-workflow.md`, `development-workflow.md` |
 | `code` | source changes | `complexity.md`, `maintainability.md` |
+| `language` | added on top, when the changed file's language has a guide | `languages/python.md`, `languages/go.md`, `languages/rust.md`, `languages/kotlin.md` |
 
 The tier comes from positive identification: only a prose or configuration
 extension (`.md`, `.yaml`, `.toml`, …) spares a mutation the code tier. An
@@ -229,6 +230,12 @@ unknown extension, no extension, or a `bash` command not attributable to a file
 all fall through to `code`, because over-gating is visible in the denial while
 under-gating is silent. The project's `.ai/project.md` joins whichever tier
 applies, when it exists.
+
+The language guide is chosen the same way, and only one is ever required: a
+`.py` file asks for `python.md`, a `.go` file for `go.md`. A language with no
+guide asks for none, because naming the wrong guide is worse than naming none.
+Guides are read in 11 to 13 of the recorded sessions - more often than the core
+docs - so this is the set sessions already reach for.
 
 What it deliberately does not do, since a gate that blocks real work is worse
 than no gate:
@@ -247,12 +254,12 @@ than no gate:
   files, and an unresolvable workspace fails closed rather than silently
   disabling the gate.
 
-`docs-gate.spec.mjs` is the test suite, and one of its cases pins the enforced
-set to the set `instruction-hint.mjs` advertises, so the promise and the
-enforcement cannot drift apart:
+`docs-gate.spec.mjs` and `docs-gate-tiers.spec.mjs` are the test suites, and one
+case pins the enforced set to the set `instruction-hint.mjs` advertises, so the
+promise and the enforcement cannot drift apart:
 
 ```bash
-node --test agents/dsh/presets/renks/docs-gate.spec.mjs
+node --test 'agents/dsh/presets/renks/*.spec.mjs'
 ```
 
 A dsh update stays a merge, not a rewrite. The repo commits no copy of the stock
@@ -432,7 +439,7 @@ Run before finishing any change to this config:
 ```bash
 for f in setup.sh ai-init ai-context agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
 for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done                # plugin syntax
-node --test agents/dsh/presets/renks/docs-gate.spec.mjs                            # gate behaviour
+node --test 'agents/dsh/presets/renks/*.spec.mjs'                                  # gate behaviour and tiers
 node tools/build-preset-recipe.mjs --check                                         # preset recipe in sync with installed stock
 find . -type l ! -exec test -e {} \; -print                                        # broken symlinks
 python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/CLAUDE.md')))"  # injection budget

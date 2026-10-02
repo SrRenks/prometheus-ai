@@ -41,10 +41,9 @@ import {
 } from './docs-gate.testkit.mjs'
 
 test('isFailureError flags only permission and cancellation failures', () => {
-  // The production outage of 2026-10-02 came from the INVERSE convention: an
-  // allow-list of "absent" codes that missed the one the host actually throws,
-  // so every marker probe rethrew and no workspace ever resolved. The default
-  // must be "absent", because that is what a probe for a missing file answers.
+  // The 2026-10-02 outage came from the INVERSE convention: an allow-list of
+  // "absent" codes that missed the one the host throws. The default must be
+  // "absent", because that is what a probe for a missing file answers.
   assert.equal(isFailureError(Object.assign(new Error('x'), { code: 'EACCES' })), true)
   assert.equal(isFailureError(Object.assign(new Error('x'), {
     code: 'FS_ABORTED',
@@ -113,8 +112,7 @@ test('an edit outside a KNOWN workspace boundary stays open', async () => {
 })
 
 test('findWorkspaceRoot survives a resolver that fails on every marker', async () => {
-  // The 2026-10-02 outage: every marker probe threw, the root never resolved,
-  // and every mutation was denied. An unreadable workspace settles on cwd.
+  // The 2026-10-02 outage: every probe threw, so every mutation was denied.
   const throwing = async () => ({
     stat: async () => { throw Object.assign(new Error('boom'), { code: 'EACCES' }) },
   })
@@ -136,15 +134,15 @@ test('resolveRequiredDocs returns only docs that exist, plus the project doc', a
 })
 
 test('the config doc set resolves even when the workspace root is unknown', async () => {
-  // The five shared rules need no workspace at all, so a workspace that cannot
-  // be identified must cost the project doc and nothing else.
+  // The shared rules need no workspace, so an unidentifiable one costs only the
+  // project doc.
   const resolved = await resolveRequiredDocs({
     resolve: fakeResolve([...CORE_DOC_PATHS, `${WORKSPACE}/.ai/project.md`]),
     workspaceRoot: undefined,
     repoRoots: [REPO],
     signal: undefined,
   })
-  assert.equal(resolved.configDocs.length, 5, 'all five shared docs must still resolve')
+  assert.equal(resolved.configDocs.length, REQUIRED_DOCS.length, 'every registry doc must still resolve')
   assert.deepEqual(resolved.projectDocs, [], 'only the workspace-local doc is skipped')
 })
 
@@ -211,55 +209,15 @@ test('a source change is denied until the whole doc set is read', async () => {
     assert.match(decision.reason, /core\/docs\/git-workflow\.md/)
   }
 
-  // The code tier needs all five, so reading them one at a time lifts the gate
-  // only at the end.
-  for (const [index, path] of CORE_DOC_PATHS.entries()) {
+  // A .ts file has no language guide, so the code tier is the whole set here,
+  // and reading the docs one at a time lifts the gate only at the end.
+  const requiredForTs = [...CORE_TIER_PATHS, ...CODE_TIER_PATHS]
+  for (const [index, path] of requiredForTs.entries()) {
     await readDoc(h, agent, path)
     const decision = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
-    const last = index === CORE_DOC_PATHS.length - 1
+    const last = index === requiredForTs.length - 1
     assert.equal(decision.kind, last ? 'allow' : 'deny', `after ${index + 1} read(s)`)
   }
-})
-
-test('a prose change needs only the core rules', async () => {
-  // The friction this tier exists to remove: editing a README should not require
-  // a complexity budget to have been read first.
-  const h = mount()
-  const agent = fakeAgent('s-prose')
-  const blocked = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/README.md` }, agent })
-  assert.equal(blocked.kind, 'deny')
-  assert.match(blocked.reason, /core\/principles\.md/)
-  assert.match(blocked.reason, /core\/docs\/git-workflow\.md/)
-  assert.doesNotMatch(blocked.reason, /complexity\.md/, 'prose must not demand the code rules')
-  assert.doesNotMatch(blocked.reason, /maintainability\.md/, 'prose must not demand the code rules')
-
-  // Reading the core tier lifts it.
-  for (const doc of CORE_TIER_PATHS) await readDoc(h, agent, doc)
-  assert.deepEqual(
-    await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/README.md` }, agent }),
-    { kind: 'allow' },
-  )
-
-  // …and the code tier is still unread, so source stays blocked.
-  const stillBlocked = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
-  assert.equal(stillBlocked.kind, 'deny', 'reading the core tier must not unlock the code tier')
-  assert.match(stillBlocked.reason, /complexity\.md/)
-})
-
-test('configuration counts as prose, an unknown extension does not', async () => {
-  const h = mount()
-  const agent = fakeAgent('s-config')
-  const config = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/settings.yaml` }, agent })
-  assert.equal(config.kind, 'deny')
-  assert.doesNotMatch(config.reason, /complexity\.md/, 'YAML is not source')
-
-  const unknown = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/thing.zig` }, agent })
-  assert.equal(unknown.kind, 'deny')
-  assert.match(unknown.reason, /complexity\.md/, 'an unfamiliar language is gated, not waved through')
-
-  const noExtension = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/Makefile` }, agent })
-  assert.equal(noExtension.kind, 'deny')
-  assert.match(noExtension.reason, /complexity\.md/, 'no extension means source')
 })
 
 test('the project doc joins the required set when the workspace has one', async () => {
@@ -286,8 +244,7 @@ test('naming a doc without reading it does not satisfy the gate', async () => {
 })
 
 test('a read is credited when allowed, before its result exists', async () => {
-  // Deliberate: the credit lands in pre-execute, so a doc read in the same turn
-  // as the mutation it enables cannot lose the race against async resolution.
+  // The credit lands in pre-execute so it cannot lose the race with resolution.
   const h = mount()
   const agent = fakeAgent('s-credit')
   await h.pre({ name: 'read', arguments: { file_path: CORE_DOC_PATHS[0] }, agent })
@@ -475,3 +432,4 @@ test('the enforced doc set and the hinted doc set cannot drift apart', async () 
     'instruction-hint must advertise the gate registry, grouped by tier',
   )
 })
+

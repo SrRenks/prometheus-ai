@@ -35,9 +35,20 @@ export const REQUIRED_DOCS = [
   { id: 'development-workflow', repoPath: 'core/docs/development-workflow.md', tier: 'core' },
   { id: 'complexity', repoPath: 'core/docs/complexity.md', tier: 'code' },
   { id: 'maintainability', repoPath: 'core/docs/maintainability.md', tier: 'code' },
+  // Language guides carry their own tier. `language` is not a rung on the way up
+  // from core to code; it is selected by the extension of the file being
+  // changed, so it is added on top of whichever tier applies.
+  { id: 'lang-python', repoPath: 'core/docs/languages/python.md', tier: 'language', language: 'python' },
+  { id: 'lang-go', repoPath: 'core/docs/languages/go.md', tier: 'language', language: 'go' },
+  { id: 'lang-rust', repoPath: 'core/docs/languages/rust.md', tier: 'language', language: 'rust' },
+  { id: 'lang-kotlin', repoPath: 'core/docs/languages/kotlin.md', tier: 'language', language: 'kotlin' },
 ]
 
-/** Tier names, cheapest first. Requiring one requires every tier below it. */
+/**
+ * The tier ladder, cheapest first. Requiring one requires every tier below it.
+ * `language` is deliberately NOT on this ladder: it is picked by extension, so
+ * it is added alongside a tier rather than reached by climbing.
+ */
 export const TIERS = ['core', 'code']
 
 /**
@@ -50,11 +61,51 @@ export const TIERS = ['core', 'code']
  */
 const PROSE_EXTENSIONS = new Set(['md', 'markdown', 'mdx', 'rst', 'adoc'])
 
-/** Extensions that mean configuration or data, not source. */
+/**
+ * Extensions that mean configuration or data, not source.
+ */
 const CONFIG_EXTENSIONS = new Set([
   'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf',
   'lock', 'env',
 ])
+
+/**
+ * Source extension to the language guide that governs it.
+ *
+ * WHY THIS IS GATED. `complexity.md` states the budgets as numbers; the language
+ * guide states how to actually enforce them - which linter, which rules, which
+ * thresholds (`C901` max 10 for Python, `gocyclo` for Go, `clippy::too_many_lines`
+ * at 60 for Rust). Requiring the budget while leaving out the tool configuration
+ * asks the agent to honour a limit without telling it how the limit is checked.
+ *
+ * The guides are 800 to 1000 bytes each, except Kotlin at 3.8 KB, so requiring
+ * exactly one of them - the one for the file being changed - is bounded and
+ * small. A file whose extension is absent from this map requires no language
+ * guide. That is deliberate: naming the WRONG guide is worse than naming none,
+ * so an unknown language gets the core rules and nothing false.
+ */
+const LANGUAGE_BY_EXTENSION = {
+  py: 'python',
+  pyi: 'python',
+  go: 'go',
+  rs: 'rust',
+  kt: 'kotlin',
+  kts: 'kotlin',
+}
+
+/**
+ * The language guide a target requires, if any.
+ *
+ * @param target - the target path, when the call carries one.
+ * @returns the guide's id, or undefined when no guide applies.
+ */
+export function languageForTarget(target) {
+  if (typeof target !== 'string' || target.length === 0) return undefined
+  const name = target.replace(/\/+$/, '').split('/').pop() ?? ''
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0) return undefined
+  return LANGUAGE_BY_EXTENSION[name.slice(dot + 1).toLowerCase()]
+}
 
 /** Mutation kinds that are code-workflow acts regardless of the target path. */
 const CODE_WORKFLOW_KINDS = new Set(['git-write', 'pkg-write', 'build-write'])
@@ -94,12 +145,14 @@ export function requiredTier(kind, target) {
  * @param available - the docs that EXIST in this workspace.
  * @returns the subset of `available` that must be read.
  */
-export function docsForTier(tier, available) {
+export function docsForTier(tier, available, language = undefined) {
   const ceiling = TIERS.indexOf(tier)
   if (ceiling < 0) return available
   return available.filter(doc => {
     // A doc with no tier is project-local: required whenever the gate is on.
     if (doc.tier === undefined) return true
+    // A language guide is required only for the language being changed.
+    if (doc.tier === 'language') return language !== undefined && doc.language === language
     const own = TIERS.indexOf(doc.tier)
     return own >= 0 && own <= ceiling
   })

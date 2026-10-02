@@ -17,8 +17,17 @@ export const REPO = `${HOME}/.config/agent-config`
 export const WORKSPACE = '/work/project'
 export const CWD = `${WORKSPACE}/src/deep`
 
-/** Every doc in the required set, as absolute paths, in registry order. */
-export const CORE_DOC_PATHS = REQUIRED_DOCS.map(doc => `${REPO}/${doc.repoPath}`)
+/**
+ * Every doc in the registry, as absolute paths, in registry order.
+ *
+ * Derived from the registry on purpose: a hand-kept list here would leave the
+ * fake filesystem without a file the gate expects, and the failure would read as
+ * a gate bug instead of a fixture gap.
+ */
+export const ALL_DOC_PATHS = REQUIRED_DOCS.map(doc => `${REPO}/${doc.repoPath}`)
+
+/** Kept as an alias: several cases read the whole set. */
+export const CORE_DOC_PATHS = ALL_DOC_PATHS
 
 /** The core-tier subset: what any change needs, prose included. */
 export const CORE_TIER_PATHS = REQUIRED_DOCS
@@ -29,6 +38,11 @@ export const CORE_TIER_PATHS = REQUIRED_DOCS
 export const CODE_TIER_PATHS = REQUIRED_DOCS
   .filter(doc => doc.tier === 'code')
   .map(doc => `${REPO}/${doc.repoPath}`)
+
+/** The language guides, by language name. */
+export const LANGUAGE_PATHS = Object.fromEntries(
+  REQUIRED_DOCS.filter(doc => doc.tier === 'language').map(doc => [doc.language, `${REPO}/${doc.repoPath}`]),
+)
 
 /**
  * Build the host `fs` seam over an in-memory map of existing files.

@@ -23,6 +23,7 @@
 import { stat } from 'node:fs/promises'
 
 import {
+  REQUIRED_DOCS,
   apply,
   findWorkspaceRoot,
   isFailureError,
@@ -111,7 +112,10 @@ console.log('\nthe shared docs resolve without any workspace root')
 {
   const docs = await resolveRequiredDocs({ resolve: realSeam, workspaceRoot: undefined, repoRoots: [CONFIG_ROOT], signal: undefined })
   const count = (docs.configDocs ?? []).length
-  check('all five config docs are found', count === 5, `${count}/5`)
+  // The registry is the source of truth, so adding a doc must not fail this.
+  check('every registry doc is found', count === REQUIRED_DOCS.length, `${count}/${REQUIRED_DOCS.length}`)
+  const tiers = new Set((docs.configDocs ?? []).map(doc => doc.tier))
+  check('and each carries its tier', tiers.has('core') && tiers.has('code') && tiers.has('language'), [...tiers].join(','))
 }
 
 console.log('\na mutation with no boundary is still gated')

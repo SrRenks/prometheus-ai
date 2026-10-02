@@ -150,6 +150,11 @@ function docSetSentence() {
       ? `always, before the first edit, write, or mutating shell command: ${names}`
       : `and when the change touches source code: ${names}`)
   }
+  const guides = REQUIRED_DOCS.language
+  if (guides !== undefined && guides.length > 0) {
+    const names = guides.map(doc => doc.split('/').pop().replace(/\.md$/, '')).join(', ')
+    parts.push(`and for the file's language, one of: ${names} (under core/docs/languages/)`)
+  }
   parts.push("plus this project's `.ai/project.md` when it exists")
   return `Read the behavioural rules the instruction files depend on — ${parts.join('; ')}. The docs-gate plugin blocks mutating tools until the reads a change needs have landed, so reading first is faster than being denied.`
 }
