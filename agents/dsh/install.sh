@@ -136,6 +136,36 @@ else
   echo "  [ok] settings.yaml: agent-presets.default = renks"
 fi
 
+# ── 5) Bundle the preset into the 0.2.0 format ──────────────────────────────
+# DSH 0.1.7 removed directory presets: nothing reads `.agent-presets/` any more.
+# A preset is now a row carried by a plugin bundle's patch file, installed into
+# the profile's node_modules. The builder converts what step 2 just wrote, so
+# this order is not interchangeable.
+# Where the profile expects it. `DSH_BUNDLE_OUT` overrides for a machine that
+# keeps its bundles elsewhere; the profile's package.json must name the same path.
+BUNDLE_OUT="${DSH_BUNDLE_OUT:-${HOME}/dsh-user-presets}"
+if [ -f "${SRC}/build-preset-bundle.mjs" ]; then
+  if node "${SRC}/build-preset-bundle.mjs" --out "${BUNDLE_OUT}" --dsh-home "${DSH_H}" >/tmp/dsh-bundle.log 2>&1; then
+    echo "  [ok] bundle built at ${BUNDLE_OUT}: $(ls "${BUNDLE_OUT}/presets"/*.patch.yml 2>/dev/null | wc -l) patch(es)"
+  else
+    echo "  [fail] bundle build failed:"
+    sed 's/^/         /' /tmp/dsh-bundle.log
+  fi
+else
+  echo "  [skip] no bundle builder at ${SRC}/build-preset-bundle.mjs"
+fi
+
 echo ""
-echo "Done. Open a NEW dsh session. The default preset is 'renks'."
-echo "Use /preset to switch back to stock 'standard' at any time."
+echo "Done. Two steps remain, both printed because the installer cannot do them:"
+echo ""
+echo "  1. The bundle must be a dependency of each dsh profile, so add to the"
+echo "     profile's package.json:"
+echo "         \"dsh-user-presets\": \"file:${BUNDLE_OUT}\""
+echo "     and list \"dsh-user-presets\" in its dsh.profile.bundles array."
+echo "     Then run \`pnpm install\` in that profile directory."
+echo ""
+echo "  2. Open a NEW dsh session. The default preset is 'renks'."
+echo "     Use /preset to switch back to stock 'standard' at any time."
+echo ""
+echo "Re-run this script after every dsh update: it rebuilds the recipe against"
+echo "the installed version, and re-bundles. Step 1 is a one-time edit per profile."

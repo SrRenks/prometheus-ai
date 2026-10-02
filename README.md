@@ -49,6 +49,48 @@ files that are not there. `setup.sh` warns when it runs from another path, and
 `ai-init` / `ai-context` accept `AGENT_CONFIG_DIR` if you relocate the config on
 purpose.
 
+### Bringing up a machine from nothing
+
+Five steps, and only the last two are manual. Two of them are separate
+repositories, because this config is not the whole system.
+
+| # | Step | What it produces |
+|---|---|---|
+| 1 | install dsh itself | the runtime, and the stock recipe `install.sh` reads |
+| 2 | clone this repo, run `setup.sh` | harness bridges, git identity include |
+| 3 | `bash agents/dsh/install.sh` | the `renks` preset, and the 0.2.0 bundle at `~/dsh-user-presets` |
+| 4 | clone `dsh-unrestricted-renks`, edit the profile's `package.json` | the toggleable unrestricted plugin, mounted |
+| 5 | `pnpm install` in the profile, start a new session | the profile reads both bundles |
+
+`dsh-unrestricted-renks` is its own repository and nothing here installs it. Its
+version and the dsh version this recipe was merged against are the two facts to
+match on another machine:
+
+```
+dsh                      0.2.0-rc.2
+dsh-unrestricted-renks   de422de   0.2.1-renks.1
+prometheus-ai            this commit
+```
+
+For step 4, each profile needs both entries. `web` and `dsh-tui` differ in their
+base bundles, so add to the existing arrays rather than replacing them:
+
+```jsonc
+"dsh": { "profile": { "bundles": [
+  /* the profile's own base bundles */
+  "dsh-user-presets",
+  "dsh-unrestricted"
+] } },
+"dependencies": {
+  "dsh-user-presets":    "file:~/dsh-user-presets",      // expand ~ yourself
+  "dsh-unrestricted":    "file:~/dsh-unrestricted-renks"
+}
+```
+
+Step 3 rebuilds the preset recipe against whichever dsh is installed, so re-run
+it after every dsh update. `DSH_BUNDLE_OUT` overrides where the bundle lands, and
+the profile's `file:` path must name the same directory.
+
 The bridges should resolve back into the clone:
 
 ```bash
