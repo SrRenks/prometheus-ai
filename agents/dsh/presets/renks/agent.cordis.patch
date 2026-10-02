@@ -1,8 +1,8 @@
---- a/agent.cordis.yml	2026-09-07 01:59:14.517589795 -0300
-+++ b/agent.cordis.yml	2026-09-07 01:59:14.518500591 -0300
-@@ -27,10 +27,23 @@
-     text: >-
-       You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+--- a/agent.cordis.yml
++++ b/agent.cordis.yml
+@@ -28,10 +28,34 @@
+     prefix: >-
+       You are a coding agent powered by the {{model}} model.
  
 -- id: agent-instructions
 -  name: '@deepseek-ai/dsh-agent-instructions'
@@ -24,10 +24,21 @@
 -    maxBytes: 65536
 +    promoteOn: tool-call
 +    includeSubagents: true
++
++# THE ENFORCEMENT for the section above. `tools/pre-execute` denies every
++# mutating tool call in a workspace whose behavioural docs have not been read,
++# so the contract is a precondition instead of a suggestion. Measured baseline
++# (2026-10, 96 recorded sessions): 33% had read an instruction file, 8% had read
++# any core behavioural doc, and 17 of the 30 sessions that received the hint still
++# never opened one. This plugin needs no realm: it registers listeners and resolves
++# the host `fs` service, and it owns no service of its own.
++# `agents/dsh/presets/renks/docs-gate.spec.mjs` is its test suite.
++- id: docs-gate
++  name: ./docs-gate.mjs
  
  # ── shell ───────────────────────────────────────────────────────────────────
  
-@@ -77,14 +90,19 @@
+@@ -78,14 +102,19 @@
  
  # The skill REGISTRY lives in the host composition and is layered per scope:
  # these rows register into THIS preset's layer of it, so they need no realm.
@@ -52,7 +63,7 @@
  
  # ── goals ───────────────────────────────────────────────────────────────────
  
-@@ -99,6 +117,10 @@
+@@ -100,6 +129,10 @@
  
  # ── plan mode ───────────────────────────────────────────────────────────────
  
@@ -63,7 +74,7 @@
  # Plan state is per-agent by nature, so an entry-local realm is not a
  # workaround here — it is the correct lifetime.
  - id: planning
-@@ -244,6 +266,9 @@
+@@ -252,6 +285,9 @@
  
  # The `web` service and its search provider stay in the host composition; only
  # the model-facing tool is per-session.

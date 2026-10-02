@@ -15,7 +15,22 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../agent-config/agents/
 REPO="$(cd "${SRC}/../.." && pwd)"                    # repo root (clone location)
 DSH_H="${DSH_HOME:-${HOME}/.dsh}"
 PRESET_DIR="${SRC}/presets/renks"
-STOCK="${DSH_H}/profiles/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml"
+BUILDER="${REPO}/tools/build-preset-recipe.mjs"
+
+# The stock `standard` recipe ships in the PROFILE's node_modules, not in the
+# shared profiles root, and which profile exists is machine-specific. Probing
+# every profile keeps this working when the active one changes (web <-> tui <-> a
+# rescue profile) instead of failing on a path that looked right once.
+STOCK=""
+for candidate in "${DSH_H}"/profiles/*/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml; do
+  if [ -f "${candidate}" ]; then STOCK="${candidate}"; break; fi
+done
+
+# Directory that can `require('yaml')`, for the recipe sanity gate.
+YAML_DIR=""
+for candidate in "${DSH_H}"/profiles/*/node_modules "${DSH_H}/profiles/node_modules"; do
+  if [ -d "${candidate}/yaml" ]; then YAML_DIR="${candidate}"; break; fi
+done
 
 echo "=== dsh personal layer install ==="
 echo "  repo     : ${REPO}"
@@ -29,35 +44,62 @@ WORK="$(mktemp -d)"; trap 'rm -rf "${WORK}"' EXIT
 RESULT="${WORK}/agent.cordis.yml"
 STATUS="merged"
 
-if [ ! -f "${STOCK}" ]; then
-  echo "  [error] stock preset not found: ${STOCK}"
-  echo "          Install dsh first (the profile bundles ship it), then re-run."
-  exit 1
+if [ -z "${STOCK}" ] || [ ! -f "${STOCK}" ]; then
+  echo "  [warn] no installed stock preset under ${DSH_H}/profiles/*/node_modules"
+  echo "         Installing the last-known-good recipe; re-run after dsh is installed"
+  echo "         to rebuild against the version actually present."
+  STOCK=""
 fi
 
-# apply your patch onto the frozen baseline
-cp "${BASE}" "${RESULT}"
-if ! (cd "${WORK}" && git apply "${PATCH}" 2>/dev/null); then
-  STATUS="fallback (patch no longer applies to the baseline)"
-fi
-
-# 3-way merge: baseline + your patch  vs  the installed stock recipe
-if [ "${STATUS}" = "merged" ]; then
+# Rebuild the recipe from the frozen baseline + your patch, then 3-way merge it
+# against the installed stock recipe. A stale baseline (upstream rewrote a block
+# you patch) is RECOVERABLE: `tools/build-preset-recipe.mjs` regenerates the
+# baseline, the patch and the fallback from the installed stock recipe, so the
+# install self-heals instead of silently degrading to the last-known-good copy.
+rebuild_recipe() {
+  STATUS="merged"
+  cp "${BASE}" "${RESULT}"
+  if ! (cd "${WORK}" && git apply "${PATCH}" 2>/dev/null); then
+    STATUS="patch does not apply to the baseline"
+    return
+  fi
   git merge-file "${RESULT}" "${BASE}" "${STOCK}" >/dev/null 2>&1 || true  # nonzero = conflicts
   if grep -q '^<<<<<<<' "${RESULT}"; then
-    STATUS="fallback (upstream changed your touched blocks)"
+    STATUS="upstream changed a block this preset patches"
+    return
   fi
-fi
+  # Every plugin row this preset adds must survive the merge. docs-gate is the
+  # enforcement half of the instruction contract: losing it silently would
+  # return the machine to hint-only delivery.
+  if ! grep -q 'id: instruction-hint' "${RESULT}" \
+     || ! grep -q 'id: skill-search' "${RESULT}" \
+     || ! grep -q 'id: docs-gate' "${RESULT}"; then
+    STATUS="merged recipe lost a plugin row"
+    return
+  fi
+  # YAML sanity when dsh's yaml parser is available (non-fatal gate). The parser
+  # is hoisted into the PROFILE's node_modules, so probe each profile rather than
+  # assuming the shared profiles root carries it.
+  if [ -n "${YAML_DIR}" ]; then
+    if ! (cd "${YAML_DIR}" && node -e "require('yaml').parse(require('fs').readFileSync(process.argv[1],'utf8'))" "${RESULT}" >/dev/null 2>&1); then
+      STATUS="merged recipe failed YAML parse"
+      return
+    fi
+  fi
+  STATUS="merged"
+}
 
-# validation gate: your two plugin rows must survive the merge
-if [ "${STATUS}" = "merged" ] && { ! grep -q 'id: instruction-hint' "${RESULT}" || ! grep -q 'id: skill-search' "${RESULT}"; }; then
-  STATUS="fallback (merged recipe lost your plugin rows)"
-fi
-
-# YAML sanity when dsh's yaml parser is available (non-fatal gate)
-if [ "${STATUS}" = "merged" ] && [ -d "${DSH_H}/profiles/node_modules/yaml" ]; then
-  if ! (cd "${DSH_H}/profiles" && node -e "require('yaml').parse(require('fs').readFileSync(process.argv[1],'utf8'))" "${RESULT}" >/dev/null 2>&1); then
-    STATUS="fallback (merged recipe failed YAML parse)"
+if [ -n "${STOCK}" ]; then
+  rebuild_recipe
+  if [ "${STATUS}" != "merged" ] && [ -f "${BUILDER}" ] && command -v node >/dev/null 2>&1; then
+    echo "  [info] ${STATUS} - regenerating the patch for this dsh version..."
+    if node "${BUILDER}" >/dev/null 2>&1; then
+      rebuild_recipe
+      [ "${STATUS}" = "merged" ] && echo "  [ok] patch regenerated against the installed stock recipe"
+    else
+      echo "  [warn] regenerating the patch failed; the installed stock recipe"
+      echo "         no longer matches the edit blocks in ${BUILDER##*/}."
+    fi
   fi
 fi
 
@@ -67,7 +109,7 @@ else
   cp "${FALLBACK}" "${RESULT}"
   echo "  [warn] ${STATUS} - installing last-known-good preset instead."
   echo "         Everything keeps working as before. To refresh the patch later:"
-  echo "         diff ${STOCK} against ${BASE} and update ${PATCH}."
+  echo "         node ${BUILDER}   # regenerates baseline + patch + fallback"
 fi
 
 # ── 2) Install the renks preset where dsh discovers it ───────────────────────
@@ -75,6 +117,9 @@ mkdir -p "${DSH_H}/.agent-presets/renks"
 cp -f "${PRESET_DIR}/preset.yml" "${DSH_H}/.agent-presets/renks/preset.yml"
 cp -f "${RESULT}" "${DSH_H}/.agent-presets/renks/agent.cordis.yml"
 for f in "${PRESET_DIR}"/*.mjs; do
+  # Skip test suites: they are run from the repo, and a preset directory only
+  # needs the modules its recipe actually names.
+  case "$f" in *.spec.mjs) continue ;; esac
   [ -e "$f" ] && cp -f "$f" "${DSH_H}/.agent-presets/renks/"
 done
 echo "  [ok] preset 'renks' installed at ${DSH_H}/.agent-presets/renks"

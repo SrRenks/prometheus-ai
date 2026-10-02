@@ -18,8 +18,16 @@
  *      - project chain: AGENTS.md / CLAUDE.md / AGENTS.local.md / CLAUDE.local.md
  *        walking up from the session cwd to the project root (a directory
  *        containing `.git`, or the cwd itself).
- *  - The hint instructs the model to READ the files before acting when
- *    relevant, without embedding their content.
+ *  - The hint also NAMES the behavioural doc set the shared config depends on
+ *    (`core/principles.md`, `core/docs/complexity.md`, `maintainability.md`,
+ *    `git-workflow.md`, `development-workflow.md`) and the project's
+ *    `.ai/project.md`. A hint saying only "instruction files exist" loads none
+ *    of them: AGENTS.md references them from a read-on-demand index, and a
+ *    2026-10 audit of 96 recorded sessions found 8% had read any of them. The
+ *    hint names them; `docs-gate.mjs` enforces them.
+ *  - The hint tells the model that mutating tools are gated until those docs
+ *    are read, so the requirement is stated BEFORE the denial arrives rather
+ *    than discovered from it.
  *  - Files are probed via `ctx.fs` (the host filesystem seam); a missing fs
  *    service or an unreadable probe yields no hint.
  *  - Pre-promotion requests get NO hint (matches the anchored bootstrap).
@@ -42,6 +50,19 @@ const PROMOTE_EVENTS = {
   'assistant-message': ['assistant/message'],
   either: ['tool/call', 'assistant/message'],
 }
+
+/**
+ * Behavioural docs the hint names by path. Kept in sync with `REQUIRED_DOCS`
+ * in `docs-gate-policy.mjs`: this list is what the model is told to read, and
+ * that list is what the gate enforces. A test asserts they agree.
+ */
+export const REQUIRED_DOCS = [
+  'core/principles.md',
+  'core/docs/complexity.md',
+  'core/docs/maintainability.md',
+  'core/docs/git-workflow.md',
+  'core/docs/development-workflow.md',
+]
 
 /** Candidate file names, in probe order, for the project chain and user-global. */
 const PROJECT_CANDIDATES = ['AGENTS.md', 'CLAUDE.md', 'AGENTS.local.md', 'CLAUDE.local.md']
@@ -170,6 +191,10 @@ export function apply(ctx, config) {
       const text = [
         ...sections,
         'Do NOT assume their content. When a task touches this workspace, read the relevant instruction files first and follow them.',
+        'Before the first edit, write, or mutating shell command in this workspace, also read the behavioural rules the instruction files depend on:',
+        REQUIRED_DOCS.map(doc => `~/.config/agent-config/${doc}`).join(', '),
+        'plus this project\'s `.ai/project.md` when it exists.',
+        'The docs-gate plugin blocks mutating tools until those reads land, so reading them first is faster than being denied.',
       ].join(' ')
 
       return {
