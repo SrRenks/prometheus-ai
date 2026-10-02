@@ -91,7 +91,52 @@ export function fakeResolve(files) {
       const type = typeOf(pathOfTarget(targetOrPath))
       return type === undefined ? undefined : { type }
     },
+    // The gate fingerprints CONTENT, so a fake that only models `stat` cannot
+    // exercise a credit at all. Content is derived from the path so it is
+    // deterministic per file, and `fileContent` below lets a case change a file
+    // mid-session to prove the credit goes stale.
+    readText: async (targetOrPath) => {
+      const path = pathOfTarget(targetOrPath)
+      if (UNREADABLE.has(path)) throw Object.assign(new Error(`EACCES: ${path}`), { code: 'EACCES' })
+      if (typeOf(path) !== 'file') {
+        throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' })
+      }
+      return fileContent(path)
+    },
   }
+}
+
+/** Content overrides, so a case can edit a tracked document mid-session. */
+const CONTENT_OVERRIDES = new Map()
+
+/** Paths whose content cannot be read, though the file exists. */
+const UNREADABLE = new Set()
+
+
+
+/**
+ * The content the fake seam serves for one path.
+ *
+ * @param path - the normalized path.
+ * @returns deterministic content, unless a case overrode it.
+ */
+export function fileContent(path) {
+  return CONTENT_OVERRIDES.get(normalizePath(path)) ?? `content of ${normalizePath(path)}\n`
+}
+
+/**
+ * Change what the fake seam serves for one path, without touching its existence.
+ *
+ * @param path - the path to rewrite.
+ * @param text - the new content.
+ */
+export function setFileContent(path, text) {
+  CONTENT_OVERRIDES.set(normalizePath(path), text)
+}
+
+/** Forget every content override, so cases stay independent. */
+export function resetFileContent() {
+  CONTENT_OVERRIDES.clear()
 }
 
 /**

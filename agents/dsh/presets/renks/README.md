@@ -9,7 +9,7 @@ install time from whatever dsh version is installed on the machine.
 | `agent.cordis.patch` | Your personal delta on top of the stock recipe (2 changes: docs-gate, skill-search). GENERATED - do not hand-edit. |
 | `stock-baseline.agent.cordis.yml` | The 3-way merge base, kept byte-identical to the installed stock `standard` recipe. GENERATED. |
 | `fallback.agent.cordis.yml` | Last-known-good generated recipe. Installed only when even a regenerated patch cannot merge. GENERATED. |
-| `docs-gate.mjs` | Denies mutating tool calls until the session has read the mandatory doc set. See below. |
+| `docs-gate.mjs` | Denies mutating tool calls until the session has successfully read the mandatory doc set's current content. See below. |
 | `docs-gate-policy.mjs` | The fs seam, the doc resolution and the denials. |
 | `docs-gate-target.mjs` | Path and `bash` parsing: what counts as a target, and where the workspace boundary is. |
 | `docs-gate-tiers.mjs` | The doc registry, the tiers, and which tier a mutation needs. |
@@ -37,8 +37,25 @@ instead of writing a patch that silently degrades the install.
 ## docs-gate
 
 `docs-gate.mjs` observes `tools/pre-execute` and denies a mutating call until the
-session has read what that call's TIER requires, plus the project's
-`.ai/project.md` when it exists:
+session has successfully read what that call's TIER requires, plus the project's
+`.ai/project.md` when it exists.
+
+"Successfully read" is exact, and `docs-gate-credit.mjs` owns the rules. A credit
+records a CONTENT fingerprint, so:
+
+- a read that produced no content credits nothing, and the denial will not claim
+  the agent read rules it never saw;
+- reading one line of a 500-line file is a full credit, because the fingerprint
+  covers the file;
+- a document edited after the read LOSES its credit, because the agent then holds
+  text that is no longer on disk.
+
+The credit is per process, keyed by root session, so a resumed session re-reads.
+Persisting it is blocked rather than merely undone: an out-of-repo session event
+needs the envelope's `ignorable` marker, which the public `session.append()` does
+not expose, and the synchronous log readers that could replay the evidence are
+prohibited for new production code. `docs-gate-credit.mjs` records that reasoning
+where a future reader will find it.
 
 - `core` — every change, prose included: `core/principles.md`.
 - `code` — source changes only: `core/docs/development-workflow.md`,

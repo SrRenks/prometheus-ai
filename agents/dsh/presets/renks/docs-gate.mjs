@@ -30,13 +30,18 @@
  * config checkout that cannot be read at all denies, and that denial names the
  * underlying error chain so the cause is visible from the tool result.
  *
- * STATE. Credits live in a process-local `Map` keyed by ROOT session id, and a
+ * STATE. Credits live in a process-local ledger keyed by ROOT session id, and a
  * subagent resolves its root through `agent.parentAgent`, so a delegated agent
- * inherits the parent's evidence. This is intentionally not the durable log: a
- * resumed session re-reads, which is the conservative direction for a gate
- * whose point is that the rules are in context.
+ * inherits the parent's evidence. A credit means "this exact content was read
+ * here", not "a read named this path": the ledger stores a content fingerprint,
+ * so a failed read credits nothing and a document edited after the read loses
+ * its credit. Persisting the ledger is blocked by the session API (see
+ * `docs-gate-credit.mjs`), and a resumed session re-reads, which is the
+ * conservative direction for a gate whose point is that the rules are in
+ * context.
  */
 
+import { createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
 import {
   absolutePath,
   classifyCall,
@@ -89,7 +94,7 @@ function createStore({ seamFor, repoRoots, extraDocs, log }) {
     let state = sessions.get(id)
     if (state === undefined) {
       state = {
-        satisfied: new Set(), docs: undefined, root: undefined, boundary: undefined,
+        ledger: createLedger(), docs: undefined, root: undefined, boundary: undefined,
         pending: undefined, resolvedAt: undefined, failure: undefined,
       }
       sessions.set(id, state)
@@ -135,31 +140,42 @@ function createStore({ seamFor, repoRoots, extraDocs, log }) {
     return state.pending
   }
 
-  return { stateFor, resolveOnce }
+  return { stateFor, resolveOnce, seamFor }
 }
 
 /**
- * Credit a `read` whose call is about to be allowed.
+ * Credit a `read` that actually returned content.
  *
- * The credit happens in `pre-execute` rather than after the result on purpose.
- * The only caller that reaches here is one the waterfall has already allowed, so
- * the read is approved; waiting for `post-execute` would introduce an ordering
- * hazard, because a read arriving before the async resolution settles has no
- * cached doc set to match against and would be silently uncredited.
+ * Runs AFTER the waterfall approved the call, so the content is real. The
+ * earlier version credited in front of `next()`, which meant a read that failed
+ * - a wrong path, a missing file - still counted, and the denial message then
+ * claimed the agent had read rules it never saw. A session on this machine did
+ * exactly that: it read a literal `~/.config/...`, got "not found", and would
+ * have been credited.
+ *
+ * The content comes from the seam rather than the tool result, so the ledger
+ * fingerprints the bytes the gate would later compare against. A read that
+ * cannot be re-read here credits nothing: unverifiable is not the same as read.
  *
  * @param store - the gate's state accessors.
  * @param agent - the calling agent.
- * @param exec - the pending `read` call.
+ * @param exec - the `read` call that just ran.
+ * @param seam - the fs seam for this call.
  */
-function creditRead(store, agent, exec) {
-  const path = pathOf(exec.arguments)
-  if (path === undefined) return
+async function creditRead(store, agent, exec, seam) {
+  if (!isReadCall(exec)) return
   const state = store.stateFor(rootSessionId(agent))
-  if (state.docs === undefined) return
-  const absolute = absolutePath(path, cwdOf(agent) ?? state.root ?? '/')
-  for (const doc of state.docs) {
-    if (doc.path === absolute) state.satisfied.add(doc.id)
+  if (state?.docs === undefined) return
+  const absolute = absolutePath(pathOf(exec.arguments) ?? '', cwdOf(agent) ?? state.root ?? '/')
+  const doc = wantedDoc(state.docs, absolute)
+  if (doc === undefined) return
+  let content
+  try {
+    content = await seam.readText(doc.path)
+  } catch {
+    return
   }
+  state.ledger.record(exec, content, state.docs)
 }
 
 /**
@@ -199,8 +215,9 @@ async function gateCall(store, log, exec, next) {
 
   const call = classifyCall(exec, state.boundary)
   if (call === undefined) {
-    if (exec.name === 'read') creditRead(store, agent, exec)
-    return next()
+    const decision = await next()
+    if (isReadCall(exec)) await creditRead(store, agent, exec, store.seamFor(cwdOf(agent) ?? process.cwd(), exec.signal))
+    return decision
   }
   if (state.resolvedAt === undefined) return denyUnresolved(exec, call.kind, state.failure ?? '')
   if (state.docs.length === 0) {
@@ -219,9 +236,37 @@ async function gateCall(store, log, exec, next) {
     language: languageForTarget(call.target),
     commits: COMMIT_KINDS.has(call.kind) && isCommitCommand(commandOf(exec.arguments)),
   })
-  const missing = requiredDocs.filter(doc => !state.satisfied.has(doc.id))
+  // A credit counts only while the document still holds the content that was
+  // read. A doc edited mid-session invalidates its credit on purpose: the agent
+  // read the old rules, and the old rules are not what governs the change.
+  const seam = store.seamFor(cwdOf(agent) ?? process.cwd(), exec.signal)
+  const missing = []
+  for (const doc of requiredDocs) {
+    if (await holdsContent(state, doc, seam)) continue
+    missing.push(doc)
+  }
   if (missing.length === 0) return next()
   return denyMutation(exec, call.kind, missing)
+}
+
+/**
+ * Does the ledger hold this document's CURRENT content?
+ *
+ * A read that cannot be re-read here counts as not held: the gate cannot verify
+ * what it cannot see, and guessing in the agent's favour is how a gate becomes
+ * decorative.
+ *
+ * @param state - the session state.
+ * @param doc - the required document.
+ * @param seam - the fs seam for this call.
+ * @returns true when the content matches what this session read.
+ */
+async function holdsContent(state, doc, seam) {
+  try {
+    return state.ledger.holds(doc, await seam.readText(doc.path))
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -278,6 +323,12 @@ export function apply(ctx, config = {}) {
           const info = await fs.stat(target, signal)
           return info === undefined ? undefined : { type: info.type }
         },
+        // Content, not metadata: the ledger fingerprints what was read, so the
+        // gate can tell "this document was read" from "this version was read".
+        readText: async (path) => {
+          const target = await fs.resolve(path, { cwd, signal })
+          return await fs.readText(target, signal)
+        },
       }
     }
     return {
@@ -285,6 +336,10 @@ export function apply(ctx, config = {}) {
         const { stat } = await import('node:fs/promises')
         const info = await stat(path)
         return { type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other' }
+      },
+      readText: async (path) => {
+        const { readFile } = await import('node:fs/promises')
+        return await readFile(path, 'utf8')
       },
     }
   }

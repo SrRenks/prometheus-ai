@@ -177,7 +177,7 @@ injections:
 |---|---|---|
 | `dsh-agent-instructions` inlines the `AGENTS.md` / `CLAUDE.md` digest | `docs-gate.mjs` | nothing is injected; the digest's read-on-demand index is enforced instead, and the denial names the files it needs |
 | `dsh-tool-skill` injects the ~9KB `<available_skills>` catalog into the first step and again after every promotion or compaction | `skill-search.mjs` | `skill_search` lists matching names on demand, `skill_load` pulls one body; the catalog costs nothing until a task needs it |
-| nothing enforced the read-on-demand index at the end of `AGENTS.md` | `docs-gate.mjs` | mutating tool calls are denied until the session has read the mandatory doc set; the denial names the files and lifts as the reads land |
+| nothing enforced the read-on-demand index at the end of `AGENTS.md` | `docs-gate.mjs` | mutating tool calls are denied until the session has successfully read the mandatory doc set's CURRENT content; the denial names the files and lifts as the reads land |
 
 A third plugin, `instruction-hint.mjs`, was removed on 2026-10-02. It named the
 doc set after the session's first tool call and never reached a live session: no

@@ -64,6 +64,14 @@ const realSeam = {
       return undefined
     }
   },
+  // The gate fingerprints CONTENT to decide whether a credit still holds, so the
+  // seam must serve it. Without this the verifier passed only because none of its
+  // scenarios reached a content check, which is the wrong reason to pass.
+  readText: async (targetOrPath) => {
+    const { readFile } = await import('node:fs/promises')
+    const path = typeof targetOrPath === 'string' ? targetOrPath : targetOrPath?.targetKey
+    return await readFile(path, 'utf8')
+  },
 }
 
 /**

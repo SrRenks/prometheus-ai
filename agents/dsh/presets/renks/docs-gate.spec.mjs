@@ -40,6 +40,8 @@ import {
   mount,
   pathOfTarget,
   readDoc,
+  resetFileContent,
+  setFileContent,
 } from './docs-gate.testkit.mjs'
 
 test('isFailureError flags only permission and cancellation failures', () => {
@@ -302,16 +304,7 @@ test('naming a doc without reading it does not satisfy the gate', async () => {
   assert.equal((await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })).kind, 'deny')
 })
 
-test('a read is credited when allowed, before its result exists', async () => {
-  // The credit lands in pre-execute so it cannot lose the race with resolution.
-  const h = mount()
-  const agent = fakeAgent('s-credit')
-  await h.pre({ name: 'read', arguments: { file_path: CORE_DOC_PATHS[0] }, agent })
-  const decision = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
-  assert.equal(decision.kind, 'deny')
-  assert.doesNotMatch(decision.reason, /core\/principles\.md/, 'the read doc must be credited')
-  assert.match(decision.reason, /core\/docs\/complexity\.md/, 'the unread docs must remain')
-})
+
 
 test('a subagent inherits the root session credit instead of re-reading', async () => {
   const h = mount()
