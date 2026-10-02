@@ -21,8 +21,14 @@ BUILDER="${REPO}/tools/build-preset-recipe.mjs"
 # shared profiles root, and which profile exists is machine-specific. Probing
 # every profile keeps this working when the active one changes (web <-> tui <-> a
 # rescue profile) instead of failing on a path that looked right once.
+# `profiles/*/node_modules` covers a profile with its own copy; the shared
+# `profiles/node_modules` covers a hoisted install, which is where the package
+# actually lives on at least one machine this has run on. Probing only the first
+# reported a false "no stock preset" and left STOCK empty.
 STOCK=""
-for candidate in "${DSH_H}"/profiles/*/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml; do
+for candidate in \
+  "${DSH_H}"/profiles/*/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml \
+  "${DSH_H}"/profiles/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml; do
   if [ -f "${candidate}" ]; then STOCK="${candidate}"; break; fi
 done
 
@@ -45,9 +51,10 @@ RESULT="${WORK}/agent.cordis.yml"
 STATUS="merged"
 
 if [ -z "${STOCK}" ] || [ ! -f "${STOCK}" ]; then
-  echo "  [warn] no installed stock preset under ${DSH_H}/profiles/*/node_modules"
-  echo "         Installing the last-known-good recipe; re-run after dsh is installed"
-  echo "         to rebuild against the version actually present."
+  echo "  [warn] no installed stock preset under ${DSH_H}/profiles/node_modules or"
+  echo "         ${DSH_H}/profiles/*/node_modules. Installing the last-known-good"
+  echo "         recipe; re-run after dsh is installed to rebuild against the"
+  echo "         version actually present."
   STOCK=""
 fi
 
@@ -88,27 +95,51 @@ rebuild_recipe() {
   STATUS="merged"
 }
 
-if [ -n "${STOCK}" ]; then
-  rebuild_recipe
-  if [ "${STATUS}" != "merged" ] && [ -f "${BUILDER}" ] && command -v node >/dev/null 2>&1; then
-    echo "  [info] ${STATUS} - regenerating the patch for this dsh version..."
-    if node "${BUILDER}" >/dev/null 2>&1; then
-      rebuild_recipe
-      [ "${STATUS}" = "merged" ] && echo "  [ok] patch regenerated against the installed stock recipe"
-    else
-      echo "  [warn] regenerating the patch failed; the installed stock recipe"
-      echo "         no longer matches the edit blocks in ${BUILDER##*/}."
-    fi
+# The attempt itself is a function so a failed regeneration can retry it without
+# repeating the recovery logic. An empty STOCK must reach the fallback: that is
+# the one case where the last-known-good copy is the only usable recipe.
+attempt_recipe() {
+  if [ -z "${STOCK}" ]; then
+    STATUS="no installed stock preset to merge against"
+    return
   fi
-fi
+  rebuild_recipe
+  if [ "${STATUS}" = "merged" ]; then
+    echo "  [ok] recipe rebuilt for the installed dsh version (clean 3-way merge)"
+    return
+  fi
+  if [ ! -f "${BUILDER}" ] || ! command -v node >/dev/null 2>&1; then
+    return
+  fi
+  echo "  [info] ${STATUS} - regenerating the patch for this dsh version..."
+  if node "${BUILDER}" >/dev/null 2>&1; then
+    rebuild_recipe
+    if [ "${STATUS}" = "merged" ]; then
+      echo "  [ok] patch regenerated against the installed stock recipe"
+    fi
+  else
+    echo "  [warn] regenerating the patch failed; the installed stock recipe"
+    echo "         no longer matches the edit blocks in ${BUILDER##*/}."
+  fi
+}
 
-if [ "${STATUS}" = "merged" ]; then
-  echo "  [ok] recipe rebuilt for the installed dsh version (clean 3-way merge)"
-else
-  cp "${FALLBACK}" "${RESULT}"
-  echo "  [warn] ${STATUS} - installing last-known-good preset instead."
-  echo "         Everything keeps working as before. To refresh the patch later:"
-  echo "         node ${BUILDER}   # regenerates baseline + patch + fallback"
+attempt_recipe
+
+# A recipe that never got built must not be reported as built. Everything past
+# this point copies ${RESULT}, so leave it absent only if the fallback is also
+# missing, and fail loudly rather than at the next `cp` under `set -e`.
+if [ ! -f "${RESULT}" ]; then
+  if [ -f "${FALLBACK}" ]; then
+    cp "${FALLBACK}" "${RESULT}"
+    echo "  [warn] installing the last-known-good preset instead."
+    echo "         Nothing regresses; the preset keeps working as it did."
+    echo "         To rebuild against the version actually installed, re-run this"
+    echo "         script once dsh is present, or regenerate the patch directly:"
+    echo "           node ${BUILDER}"
+  else
+    echo "  [fail] ${STATUS}, and no fallback recipe at ${FALLBACK}"
+    exit 1
+  fi
 fi
 
 # ── 2) Install the renks preset where dsh discovers it ───────────────────────
@@ -155,7 +186,22 @@ else
   echo "  [skip] no bundle builder at ${SRC}/build-preset-bundle.mjs"
 fi
 
-# ── 6) Sync the bundle into every profile ───────────────────────────────────
+# ── 6) Declare the bundle in each profile that already refers to it ─────────
+# A profile mounts a bundle only when its package.json names it in BOTH the
+# dsh.profile.bundles array and dependencies, and a profile missing either half
+# loads nothing while reporting no error. The tool COMPLETES such a profile and
+# refuses to introduce the bundle to one that never mentioned it, so a profile
+# belonging to another setup is left alone. Its own dry run is the report.
+WIRED=0
+if [ -f "${BUNDLE_OUT}/package.json" ] && command -v node >/dev/null 2>&1; then
+  WIRING="$(node "${REPO}/tools/wire-profile-bundles.mjs" --dsh-home "${DSH_H}" --bundle "${BUNDLE_OUT}" 2>&1)"
+  printf '%s\n' "${WIRING}" | sed 's/^/  /'
+  printf '%s\n' "${WIRING}" | grep -q '\[ok\]' && WIRED=1
+else
+  echo "  [skip] no bundle at ${BUNDLE_OUT} to declare"
+fi
+
+# ── 7) Sync the bundle into every profile ───────────────────────────────────
 # Rewriting the bundle is NOT enough, and the reason is a pnpm detail that is
 # invisible until a profile fails to pick up a change. The profiles use
 # `nodeLinker: hoisted`, so a `file:` dependency may land as a HARDLINK or as an
@@ -166,7 +212,9 @@ fi
 #
 # So this runs install in every profile that has the bundle. It is a no-op for
 # the hardlinked ones and the only thing that works for the others.
-if command -v pnpm >/dev/null 2>&1; then
+if [ "${WIRED}" = "0" ] && [ "${SYNC_FORCE:-0}" != "1" ]; then
+  echo "  [skip] nothing was declared, so no profile needs an install"
+elif command -v pnpm >/dev/null 2>&1; then
   for profile in "${DSH_H}"/profiles/*/; do
     [ -f "${profile}package.json" ] || continue
     grep -q 'dsh-user-presets' "${profile}package.json" 2>/dev/null || continue
@@ -186,12 +234,22 @@ echo "Done. Open a NEW dsh session: the modules are loaded at startup, so a"
 echo "running session keeps the old code until it restarts."
 echo "The default preset is 'renks'; /preset switches back to stock 'standard'."
 echo ""
-if grep -rq 'dsh-user-presets' "${DSH_H}"/profiles/*/package.json 2>/dev/null; then
-  echo "Every profile already declares the bundle, so nothing else is needed."
-else
-  echo "ONE-TIME SETUP still required in each profile's package.json:"
-  echo "  add \"dsh-user-presets\": \"file:${BUNDLE_OUT}\" to dependencies, and list"
-  echo "  \"dsh-user-presets\" in dsh.profile.bundles, then re-run this script."
+# Name the profiles this touched, and the ones it deliberately did not. A
+# profile that never mentioned the bundle belongs to another setup, and saying so
+# is the difference between "nothing needed" and "nothing was done".
+pending=""
+for profile in "${DSH_H}"/profiles/*/; do
+  [ -f "${profile}package.json" ] || continue
+  name="$(basename "${profile}")"
+  grep -q 'dsh-user-presets' "${profile}package.json" 2>/dev/null && continue
+  case "${name}" in node_modules) continue ;; esac
+  pending="${pending} ${name}"
+done
+if [ -n "${pending}" ]; then
+  echo "Not touched, because they never mentioned the bundle:${pending}"
+  echo "If one of them should use the renks preset, add to its package.json:"
+  echo "  \"dsh-user-presets\": \"file:${BUNDLE_OUT}\"   in dependencies, and"
+  echo "  \"dsh-user-presets\"                           in dsh.profile.bundles"
 fi
 echo ""
 echo "Re-run after every dsh update: it rebuilds the recipe against the installed"
