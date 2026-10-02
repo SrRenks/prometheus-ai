@@ -131,6 +131,8 @@ agents/
   claude-code/         CLAUDE.md, settings.json, hooks/, rules/, commands/
   gemini/              GEMINI.md
   dsh/                 install.sh and presets/renks/
+tools/
+  build-preset-recipe.mjs   regenerates the dsh preset baseline, patch and fallback
 skills/                one procedure per directory, each a SKILL.md
 .gitignore             keeps backups/, evals/, and a stray gitconfig out of git
 README.md, LICENSE     this file and the license
@@ -173,27 +175,99 @@ injections:
 
 | Stock behavior | Replaced by | What happens instead |
 |---|---|---|
-| `dsh-agent-instructions` inlines the `AGENTS.md` / `CLAUDE.md` digest | `instruction-hint.mjs` | one hint per session, after the first durable promotion signal: the instruction files exist, read them before acting |
+| `dsh-agent-instructions` inlines the `AGENTS.md` / `CLAUDE.md` digest | `instruction-hint.mjs` | one hint per session, after the first durable promotion signal: the instruction files exist, read them before acting - and it names the mandatory doc set by path |
 | `dsh-tool-skill` injects the ~9KB `<available_skills>` catalog into the first step and again after every promotion or compaction | `skill-search.mjs` | `skill_search` lists matching names on demand, `skill_load` pulls one body; the catalog costs nothing until a task needs it |
+| nothing enforced the read-on-demand index at the end of `AGENTS.md` | `docs-gate.mjs` | mutating tool calls are denied until the session has read the mandatory doc set; the denial names the files and lifts as the reads land |
 
-`compaction-epoch.mjs` backs both plugins. It tracks the compaction boundary so a
-promotion signal recorded before a compaction does not count after it. The two
-plugins import only each other, never dsh internals, so an upstream release does
-not break them.
+`compaction-epoch.mjs` backs the hint and the gate. It tracks the compaction
+boundary so a promotion signal recorded before a compaction does not count after
+it. The plugins import only each other, never dsh internals, so an upstream
+release does not break them.
+
+### Why the gate exists
+
+A hint is one message among many, and the rules that matter are cross-references:
+`AGENTS.md` names `complexity.md`, `maintainability.md` and `git-workflow.md` in
+a read-on-demand index, and a hint saying "instruction files exist" loads none of
+them.
+
+An audit over the 96 recorded sessions in `~/.dsh/sessions` (`tools/audit-instruction-reads.mjs`) measured the result:
+
+| Signal | Sessions |
+|---|---|
+| read `AGENTS.md`, `CLAUDE.md` or `.ai/*.md` at all | 33% |
+| read any core behavioural doc | 8% |
+| received the `instruction-hint` and still never opened an instruction file | 17 of 30 |
+
+Of the sessions where the hint did land, the median delay before the read was two
+tool calls: the first edits happened before the rules were in context. The hint
+fired; nothing enforced it.
+
+Replaying those same transcripts against the gate's own classifier is the
+strongest argument for enforcing at the tool call rather than in a message: of
+the 84 sessions that mutated anything, **83 (99%) made their first mutation
+before reading the set**, at a median of 3 tool calls in, and 51 of them mutated
+within the first 5 calls. The window in which a hint could plausibly work is
+routinely zero to three calls.
+
+`docs-gate.mjs` observes `tools/pre-execute` - the waterfall `dsh-tools` runs
+before every tool body - and denies a mutating call until the session has read
+`core/principles.md`, `core/docs/complexity.md`, `core/docs/maintainability.md`,
+`core/docs/git-workflow.md`, `core/docs/development-workflow.md`, and the
+project's `.ai/project.md` when it exists. The denial reaches the model as the
+tool result, so the corrective instruction arrives exactly where the model is
+looking.
+
+What it deliberately does not do, since a gate that blocks real work is worse
+than no gate:
+
+- It never gates a read-only call. `read`, `grep`, `glob`, `web_search`,
+  `todo_write`, `skill_load`, subagent dispatch and read-only `bash` (`git
+  status`, `git diff`, test runners) stay open, so the agent can explore and can
+  satisfy the gate.
+- It never gates a target outside the workspace: an edit at an absolute path
+  elsewhere, or a `bash` redirection into `/tmp`.
+- It never gates an uninitialized workspace. If no required doc exists - a fresh
+  scaffold, a scratch directory, a machine without this checkout - the gate opens
+  and says so.
+- It never re-gates: once the set is read, the check is one `Set` lookup.
+- A subagent inherits its root session's evidence instead of re-reading five
+  files, and an unresolvable workspace fails closed rather than silently
+  disabling the gate.
+
+`docs-gate.spec.mjs` is the test suite, and one of its cases pins the enforced
+set to the set `instruction-hint.mjs` advertises, so the promise and the
+enforcement cannot drift apart:
+
+```bash
+node --test agents/dsh/presets/renks/docs-gate.spec.mjs
+```
 
 A dsh update stays a merge, not a rewrite. The repo commits no copy of the stock
 recipe; `agents/dsh/presets/renks/` holds three parts:
 
-- `stock-baseline.agent.cordis.yml` is the frozen base the patch was made
-  against, kept byte-identical as the merge base.
-- `agent.cordis.patch` is the personal delta, the two swaps above.
+- `stock-baseline.agent.cordis.yml` is the merge base, kept byte-identical to the
+  installed stock `standard` recipe.
+- `agent.cordis.patch` is the personal delta, the swaps above.
 - `fallback.agent.cordis.yml` is the last-known-good generated recipe.
 
+All three are generated by `tools/build-preset-recipe.mjs`, which reads the stock
+recipe for the dsh version actually installed and rewrites the set from it. The
+baseline used to be hand-frozen, which meant an upstream persona rewrite made
+every install fall through to the fallback - a change to the patch could not
+reach the machine at all. Now `install.sh` detects that case, regenerates the
+recipe and merges again, so the upgrade path is self-healing:
+
+```bash
+node tools/build-preset-recipe.mjs          # regenerate baseline + patch + fallback
+node tools/build-preset-recipe.mjs --check  # verify only; non-zero on drift
+```
+
 `agents/dsh/install.sh` 3-way merges the patch onto whichever dsh version is
-installed, validates the YAML, and installs the fallback when the merge
-conflicts. It also links `~/.dsh/AGENTS.md` and `~/.dsh/skills` into this repo
-and sets `agent-presets.default: renks` in `~/.dsh/settings.yaml`. After a dsh
-upgrade:
+installed, validates the YAML and the plugin rows, and installs the fallback only
+when even a regenerated patch cannot merge. It also links `~/.dsh/AGENTS.md` and
+`~/.dsh/skills` into this repo and sets `agent-presets.default: renks` in
+`~/.dsh/settings.yaml`. After a dsh upgrade:
 
 ```bash
 git pull && bash agents/dsh/install.sh
@@ -346,6 +420,8 @@ Run before finishing any change to this config:
 ```bash
 for f in setup.sh ai-init ai-context agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
 for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done                # plugin syntax
+node --test agents/dsh/presets/renks/docs-gate.spec.mjs                            # gate behaviour
+node tools/build-preset-recipe.mjs --check                                         # preset recipe in sync with installed stock
 find . -type l ! -exec test -e {} \; -print                                        # broken symlinks
 python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/CLAUDE.md')))"  # injection budget
 ```
@@ -362,8 +438,9 @@ directory. Rule frontmatter needs `description`, `globs`, and
 the scalar and the loader drops the file without an error, so quote any value
 that contains one. The dsh patch flow keeps
 `agents/dsh/presets/renks/stock-baseline.agent.cordis.yml` plus
-`agent.cordis.patch` byte-identical to `fallback.agent.cordis.yml`; see
-`agents/dsh/presets/renks/README.md`.
+`agent.cordis.patch` byte-identical to `fallback.agent.cordis.yml`; the three
+are generated together by `tools/build-preset-recipe.mjs`, and `--check`
+reports drift. See `agents/dsh/presets/renks/README.md`.
 
 Prose in the README, docs, comments, and commit messages is checked against
 `core/docs/ai-writing.md`, which lists the vocabulary and sentence patterns that

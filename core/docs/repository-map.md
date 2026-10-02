@@ -12,10 +12,11 @@ This config is READ-ONLY for agents. Projects do not copy it: `ai-init` creates 
 - `ai-context` - generates `.ai/context/` topic files and the project README on demand. → `~/.local/bin/ai-context`.
 - `core/` - tool-free content: `core/docs/` (reference library), `core/principles.md`, `core/templates/`.
 - `agents/` - per-tool adapters: `claude-code/` (CLAUDE.md, CLAUDE.local.md, settings.json, hooks, rules, commands, claudeignore), `gemini/`, `dsh/`.
+- `tools/` - repo-maintenance scripts. `build-preset-recipe.mjs` regenerates the dsh preset's baseline, patch and fallback from the installed stock recipe, and `--check` reports drift.
 - `skills/` - shared procedures, symlinked to `~/.claude/skills` and `~/.dsh/skills`.
 
 ## Tool integrations - `agents/`
-- `agents/dsh/presets/renks/` - the DEFAULT dsh preset (mirrors the live roster `~/.dsh/.agent-presets/renks/`). Evidence-based instruction delivery: no full AGENTS.md digest and no skill-catalog injection; `instruction-hint.mjs` injects one "read the instruction files" hint after the first tool call, and `skill-search.mjs` exposes `skill_search`/`skill_load`. Scale policy: search/load stays the default as the catalog grows; do not re-add catalog injection beyond ~3-5 skills.
+- `agents/dsh/presets/renks/` - the DEFAULT dsh preset (mirrors the live roster `~/.dsh/.agent-presets/renks/`). Evidence-based instruction delivery: no full AGENTS.md digest and no skill-catalog injection; `instruction-hint.mjs` injects one "read the instruction files" hint after the first tool call and names the mandatory doc set, `docs-gate.mjs` (with its pure half `docs-gate-policy.mjs`) DENIES mutating tool calls until that set has been read (an audit of 96 recorded sessions found hints were ignored: 8% had read any core behavioural doc), and `skill-search.mjs` exposes `skill_search`/`skill_load`. Scale policy: search/load stays the default as the catalog grows; do not re-add catalog injection beyond ~3-5 skills.
 - `agents/claude-code/` - CLAUDE.md, settings.json, hooks, rules, commands (commands symlink to `skills/`).
 - `agents/gemini/` - GEMINI.md wrapper.
 - `skills/` - shared procedures (plan, onboard, context, review, ci, ship, extend-config), symlinked to both `~/.dsh/skills` and `~/.claude/skills`.

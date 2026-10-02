@@ -13,8 +13,9 @@
 4. Never fabricate. If you don't know, say so. Don't guess and sound certain.
 5. Stop when confused. Ask. Don't barrel ahead with wrong assumptions.
 6. Touch only what's requested. No drive-by refactoring. No cleanups outside scope.
-7. Formatting by audience: agent-facing files (this config, `.ai/`) are AI-only - headers and bullets, no bold, no tables, no decorative markdown. Committed project docs (`README.md`, `docs/`) are written for humans - full markdown, and the skeletons under `core/templates/` mirror that human format, tables and bold included.
-8. AI-writing hygiene applies only to prose written into files for humans (README, docs, code comments, commit messages): follow `~/.config/agent-config/core/docs/ai-writing.md`. Chat replies and `.ai/` files are exempt.
+7. Before the first edit, write, or mutating command in a workspace, read the mandatory doc set: `core/principles.md`, `core/docs/complexity.md`, `core/docs/maintainability.md`, `core/docs/git-workflow.md`, `core/docs/development-workflow.md`, and the project's `.ai/project.md` when it exists (paths relative to `~/.config/agent-config/`). The dsh `docs-gate` plugin denies the call until these land.
+8. Formatting by audience: agent-facing files (this config, `.ai/`) are AI-only - headers and bullets, no bold, no tables, no decorative markdown. Committed project docs (`README.md`, `docs/`) are written for humans - full markdown, and the skeletons under `core/templates/` mirror that human format, tables and bold included.
+9. AI-writing hygiene applies only to prose written into files for humans (README, docs, code comments, commit messages): follow `~/.config/agent-config/core/docs/ai-writing.md`. Chat replies and `.ai/` files are exempt.
 
 ## Section 1: Project entry
 1. On first action in a workspace, classify the project:
@@ -32,7 +33,7 @@
 Full procedure and step order: `~/.config/agent-config/core/docs/development-workflow.md`.
 ### Analysis
 1. Read the project's `docs/repository-map.md` for structure; if absent, use `~/.config/agent-config/core/docs/repository-map.md`.
-2. Load `~/.config/agent-config/core/principles.md` for behavior rules.
+2. Read the mandatory doc set (Section 0, rule 7) before loading anything else.
 3. Plan before code for multi-file or uncertain work: numbered plan with explicit success criteria, with the assumptions recorded in `.ai/assumptions.md`. Skip the written plan when the change fits a one-sentence diff.
    Gate: the plan is approved before implementation starts.
 ### Implementation
@@ -70,7 +71,6 @@ Read on demand; never copy them into projects. Paths below are relative to `~/.c
 - Languages: `core/docs/languages/`
 - Decisions: `core/docs/decisions/`
 - Dependencies: `core/docs/dependency-policy.md`
-- Tool integrations: per-tool configs under `agents/` (claude-code, gemini, dsh); shared skills at `skills/` (symlinked to both `~/.claude/skills` and `~/.dsh/skills`); dsh preset roster at `~/.dsh/.agent-presets/`
 
 ## Section 4: Memory files (`.ai/`, local-only, never committed)
 - `.ai/agents.md` - symlink to this file (shared; do not edit)
