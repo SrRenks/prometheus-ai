@@ -14,6 +14,7 @@ Project-specific deviations go in the project's `.ai/docs/git-workflow.md` (loca
 - Body explains the *why* (and references decisions/issue IDs when relevant).
 - Atomic: one logical change per commit; each commit compiles, passes tests, and is independently reviewable.
 - Never `git add -A` / `git add .` - stage explicit files only.
+- Do not put agent, model, or tool attribution in a commit message: no `Co-Authored-By` naming one, no `Generated-by`, `Assisted-by`, or `AI-assisted` trailer, and no sentence crediting one as the author or as the reason for the change. Describe the change and its evidence, and leave the identity to the commit metadata. The reason is a rule about the change's content, not about disclosure: an agent naming itself adds a line that will be wrong the moment the reader checks who wrote it, and it invites the reader to weigh the author instead of the diff.
 
 ## Pull requests & merge
 - Open the PR early.
