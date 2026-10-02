@@ -86,7 +86,7 @@ function parsePromoteOn(value) {
 }
 
 /** Find the project root: first ancestor containing any root marker (e.g. .git). */
-async function findProjectRoot(fs, cwd, signal) {
+async function findProjectRoot(fs, cwd, signal, probeFailed = { value: false }) {
   let current = cwd
   for (;;) {
     for (const marker of ['.git', '.hg', '.svn']) {
@@ -95,7 +95,10 @@ async function findProjectRoot(fs, cwd, signal) {
         const info = await fs.stat(target, signal)
         if (info !== undefined) return current
       } catch {
-        // Probe failure = marker absent; continue.
+        // A missing marker and an unreadable filesystem are indistinguishable
+        // here, so record that a probe failed and let the caller decide whether
+        // "found nothing" is a fact or an artefact.
+        probeFailed.value = true
       }
     }
     const parent = parentPath(current)
@@ -105,7 +108,7 @@ async function findProjectRoot(fs, cwd, signal) {
 }
 
 /** List instruction files present in one directory (project candidates). */
-async function presentInDir(fs, dir, candidates, signal) {
+async function presentInDir(fs, dir, candidates, signal, probeFailed = { value: false }) {
   const found = []
   for (const candidate of candidates) {
     try {
@@ -113,7 +116,8 @@ async function presentInDir(fs, dir, candidates, signal) {
       const info = await fs.stat(target, signal)
       if (info !== undefined && info.type === 'file') found.push(candidate)
     } catch {
-      // Absent or unreadable: skip.
+      // Absent or unreadable: skip, and record which it might have been.
+      probeFailed.value = true
     }
   }
   return found
@@ -195,28 +199,40 @@ export function apply(ctx, config) {
       const session = agent.session
       if (session === undefined || hinted.has(session.id)) return decision
 
-      // Claim this process before inspecting durable state or probing the
-      // filesystem, so concurrent re-entry cannot pass through an await. The
-      // event scan makes resume safe, but is not an atomic cross-process claim:
-      // simultaneous writers can both observe no hint before either persists it.
-      hinted.add(session.id)
+      // An earlier request in this process already decided what to do with this
+      // session (durable scan below). The claim is NOT taken here: taking it
+      // before the hint is built meant a probe that could not complete silenced
+      // the session permanently, with no log and no retry. Transient conditions
+      // must not consume the one chance a session gets.
       if (session.events.some(
         event => event.type === 'user/message' && event.data?.source?.kind === 'instruction-hint',
-      )) return decision
+      )) {
+        hinted.add(session.id)
+        return decision
+      }
 
       const fs = ctx.get('fs')
-      if (fs === undefined) return decision
+      if (fs === undefined) {
+        // Permanent for this process: no filesystem means no hint, ever. Claim
+        // so later requests stop paying for the check.
+        hinted.add(session.id)
+        return decision
+      }
       const cwd = session.header.cwd ?? process.cwd()
 
+      // Track probe failures so an empty result can be told from an unreadable
+      // one. "There are no instruction files" is a fact worth claiming;
+      // "I could not read the filesystem" is not, and must stay retryable.
+      const probeFailed = { value: false }
       const projectFiles = []
-      const root = await findProjectRoot(fs, cwd, signal)
-      projectFiles.push(...await presentInDir(fs, root, PROJECT_CANDIDATES, signal))
+      const root = await findProjectRoot(fs, cwd, signal, probeFailed)
+      projectFiles.push(...await presentInDir(fs, root, PROJECT_CANDIDATES, signal, probeFailed))
 
       const userGlobalFiles = []
       try {
         const dshHome = process.env.DSH_HOME ?? (process.env.USERPROFILE ? `${process.env.USERPROFILE}\\.dsh` : undefined)
         if (dshHome !== undefined) {
-          userGlobalFiles.push(...await presentInDir(fs, dshHome, [USER_GLOBAL_CANDIDATE], signal))
+          userGlobalFiles.push(...await presentInDir(fs, dshHome, [USER_GLOBAL_CANDIDATE], signal, probeFailed))
         }
       } catch {
         // Unreadable home probe: ignore.
@@ -229,7 +245,17 @@ export function apply(ctx, config) {
       if (userGlobalFiles.length > 0) {
         sections.push(`A user-global instruction file exists: ${USER_GLOBAL_CANDIDATE}.`)
       }
-      if (sections.length === 0) return decision
+      if (sections.length === 0) {
+        if (probeFailed.value) {
+          // Unreadable, not empty. Leave the session unclaimed so the next
+          // request retries instead of losing the hint for good.
+          warnOnce(`${name}: instruction files could not be probed; will retry on the next request.`)
+          return decision
+        }
+        // Definitively nothing to report: claim so later requests stop walking.
+        hinted.add(session.id)
+        return decision
+      }
 
       const text = [
         ...sections,
@@ -237,6 +263,9 @@ export function apply(ctx, config) {
         docSetSentence(),
       ].join(' ')
 
+      // Claim only now: the hint is built, so this is the one emission. A throw
+      // above leaves the session unclaimed and the next request retries.
+      hinted.add(session.id)
       return {
         ...decision,
         messages: [...decision.messages, {
