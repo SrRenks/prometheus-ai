@@ -345,6 +345,29 @@ same session inherits the author's assumptions.
 
 ## Guardrails
 
+The same rule is enforced differently per tool, because what a harness can
+mediate differs. Three surfaces exist, and they are the reason the rules are
+short: a sentence that must not fail belongs behind a control, not in the text.
+
+| Surface | Mediates | Where |
+|---|---|---|
+| `docs-gate` | the tool call, before it runs | the dsh preset below |
+| `block-danger` | the bash command, before it runs | Claude Code hooks, this section |
+| linters, tests, the review checklist | the artifact, after it exists | `validation-checklist.md` |
+
+The gate is the strongest of the three, and deliberately the narrowest: it denies
+a mutating call until the behavioural docs that call needs have been read. That
+failure is the one this repo measured as systematic — of the 84 sessions that
+mutated anything, **83 (99%) made their first mutation before reading the rules**
+— and no amount of prose moved it, so a control was the only lever left. The
+quantitative case for a surface like it comes from AgentGuard
+([arXiv:2609.16287](https://arxiv.org/abs/2609.16287), `sources.md`): a frontier
+harness left unmodified still modified unrelated files, rewrote tests, or ignored
+failed validations in 69% of runs, and the guardrail cut that to 26.7% while
+raising completion from 21.7% to 35.0%. Its guardrails are instruction-level,
+injected when relevant; this gate mediates the call instead, which is a stronger
+mechanism than the one the numbers are about.
+
 Claude Code gets two hooks, wired in `agents/claude-code/settings.json`:
 
 - `block-danger` runs before a Bash call and denies a fixed list: recursive
@@ -545,8 +568,15 @@ of AI writing, the ETH Zurich study on instruction bloat and inference cost, the
 METR trial on measured developer productivity, the DORA report on AI as an
 amplifier, OWASP's application and LLM top tens, Jakob Nielsen on AI usability,
 Diataxis, Keep a Changelog, Conventional Commits, and the work of Parnas, Yourdon
-and Constantine, Feathers, Nygard, Knuth, and Chroma. If a rule here misstates
-its source, or a source is missing, the fix belongs in that file.
+and Constantine, Feathers, Nygard, Knuth, and Chroma. Two recent additions bear
+directly on the gate: **AgentGuard** (arXiv:2609.16287), which measures what
+execution guardrails actually buy on real coding-agent traces, and Rodrigues
+Pereira's **An LLM Agent Cannot Be a Gate**, which supplies the security framing —
+complete mediation, and why an agent may author a gate but must never be one. That
+second one is a self-published preprint with a single deployment behind it, and
+`sources.md` says so where it is cited, because the argument is what this repo
+borrowed, not the evidence. If a rule here misstates its source, or a source is
+missing, the fix belongs in that file.
 
 Named after the Prometheus Circuit in Chrono Trigger, the machine that directs the
 others and answers to the people who keep it.

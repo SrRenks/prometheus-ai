@@ -4,7 +4,7 @@
 - This configuration is the single source of truth for agent behavior. It is READ-ONLY for agents: never create, edit, or delete anything under `~/.config/agent-config/` unless the human explicitly orders it. When the human does order a change, follow `~/.config/agent-config/core/docs/agent-config-authoring.md` (or load the extend-config skill).
 - A project's agent configuration lives in its `.ai/` directory. `.ai/agents.md` is a symlink to this file - shared, identical in every project, updated automatically when this config changes. `.ai/project.md` holds project-specific rules. The `.ai/` structure is defined in `~/.config/agent-config/core/docs/ai-directory.md`.
 - Custom, project-specific instructions belong only in `.ai/project.md` and `.ai/docs/`. Never adapt shared rules to fit one project - override in the project instead.
-- Injection varies by tool: some tools auto-inject this file; others (including the dsh default preset) inject only a one-time hint. If unsure whether this file was injected, read it yourself at the start of work in any workspace.
+- Injection varies by tool. Some auto-inject this file; the dsh preset injects nothing and enforces instead (rule 7). Never assume this file is in context - if unsure, read it.
 
 ## Section 0: Non-negotiables
 1. No flattery. Never say "Great question," "Good catch," or similar. Be direct.

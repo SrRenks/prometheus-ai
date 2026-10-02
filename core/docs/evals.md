@@ -34,9 +34,15 @@ result is stable or better - and never because of a public-benchmark number.
   catalog ≤ 1% of the context window or on-demand search/load instead.
   Measured 2026-09-16 with tiktoken: 2460 tokens on the Claude Code path
   (AGENTS.md 2283 plus the 177-token agents/claude-code/CLAUDE.md layer on
-  o200k_base; cl100k_base reads 2470). That leaves about 40 tokens of slack,
-  so anything added to AGENTS.md comes out of something else first. The skill
-  catalog is not injected at all under the renks preset.
+  o200k_base; cl100k_base reads 2470). Estimated 2026-10-02 at about 2432 by
+  scaling the AGENTS.md character count against that measurement, after the
+  line about injection was rewritten to stop claiming the preset injects a hint:
+  the false claim cost 117 characters and the replacement is shorter than the
+  claim it replaces, so the budget improved rather than tightened. Slack is now
+  roughly 68 tokens. Re-measure with a real tokenizer before relying on the
+  estimate, and remember the rule either way: anything added to AGENTS.md comes
+  out of something else first. The skill catalog is not injected at all under
+  the renks preset.
 
 ### B. task set (run for substantive changes)
 - Keep 5-10 representative tasks per project type you actually work in
