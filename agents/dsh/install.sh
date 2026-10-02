@@ -175,12 +175,18 @@ fi
 # Where the profile expects it. `DSH_BUNDLE_OUT` overrides for a machine that
 # keeps its bundles elsewhere; the profile's package.json must name the same path.
 BUNDLE_OUT="${DSH_BUNDLE_OUT:-${HOME}/dsh-user-presets}"
+BUNDLE_LOG="${TMPDIR:-/tmp}/dsh-bundle.log"
 if [ -f "${SRC}/build-preset-bundle.mjs" ]; then
-  if node "${SRC}/build-preset-bundle.mjs" --out "${BUNDLE_OUT}" --dsh-home "${DSH_H}" >/tmp/dsh-bundle.log 2>&1; then
+  if node "${SRC}/build-preset-bundle.mjs" --out "${BUNDLE_OUT}" --dsh-home "${DSH_H}" >"${BUNDLE_LOG}" 2>&1; then
     echo "  [ok] bundle built at ${BUNDLE_OUT}: $(ls "${BUNDLE_OUT}/presets"/*.patch.yml 2>/dev/null | wc -l) patch(es)"
+    # The builder's running commentary stays in the log, but anything it PRUNED
+    # or SKIPPED is a change to what a session will mount, and a silent change of
+    # that kind is the defect this whole area keeps producing. Surface those.
+    # Everything else is noise on the happy path, so it is not reprinted.
+    grep -E -A1 '^(pruned|skip )' "${BUNDLE_LOG}" | sed 's/^/    /' || true
   else
     echo "  [fail] bundle build failed:"
-    sed 's/^/         /' /tmp/dsh-bundle.log
+    sed 's/^/         /' "${BUNDLE_LOG}"
   fi
 else
   echo "  [skip] no bundle builder at ${SRC}/build-preset-bundle.mjs"
