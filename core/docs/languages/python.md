@@ -20,6 +20,9 @@ Use `ruff` with rules that enforce complexity budgets and code smells. Turn on:
 Example `pyproject.toml`:
 
 ```toml
+[tool.ruff]
+line-length = 88          # Black's default, and what rules/python.md states
+
 [tool.ruff.lint]
 select = ["C901", "PLR0915", "PLR0912", "PLR0913", "RUF100"]
 
@@ -32,5 +35,6 @@ Additionally, run radon mi to track Maintainability Index, and bandit for securi
 ## Practices
 
 Use type hints, `pathlib`, and the standard library over third-party packages.
+Use `uv` for package management rather than invoking `pip` directly.
 Do not use dynamic behavior without justification. Keep classes small. Do not use
 unnecessary frameworks.
