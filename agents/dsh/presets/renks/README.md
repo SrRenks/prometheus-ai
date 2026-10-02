@@ -66,16 +66,20 @@ where a future reader will find it.
   enforced - `C901` max 10 for Python, `gocyclo` for Go, `clippy::too_many_lines`
   at 60 for Rust. Requiring the budget without the tool configuration asks the
   agent to honour a limit it cannot check.
-- `commits` — a TRIGGER, not a rung: `core/docs/git-workflow.md` is required when
-  the call is `git commit`, `git push`, `gh pr create` or `lazygit`, and at no
-  other time. The whole doc is commit and pull-request procedure, so a session
-  that never commits has no use for it. This follows the within-session
-  compliance decay measured in arXiv:2605.10039: the rules that matter are the
-  ones in play, and a doc loaded for a session that never reaches its subject is
-  context spent for nothing.
+- `commits` — a TRIGGER, not a rung: `core/docs/git-workflow.md` and
+  `core/docs/ai-writing.md` are required when the call is `git commit`,
+  `git push`, `gh pr create` or `lazygit`, and at no other time. Neither doc is
+  used by a session that never commits: one is commit and pull-request procedure,
+  the other governs prose a human will read, and the review phase places its check
+  immediately before the commit. This follows the within-session compliance decay
+  measured in arXiv:2605.10039 - the rules that matter are the ones in play, and a
+  doc loaded for a session that never reaches its subject is context spent for
+  nothing. `ai-writing.md` is the smallest doc in the set at 3.2 KB and had three
+  callers with no enforcement, which is why it moved here rather than staying in
+  the reference index.
 - The three selectors - ladder, language, commit trigger - are UNIONED, because
-  none implies another: a prose session that commits needs `git-workflow.md`
-  without ever needing the code tier.
+  none implies another: a prose session that commits needs the two commit-time
+  docs without ever needing the code tier.
 
 The tier is chosen by positive identification. A target is spared the code tier
 only when its extension says prose (`.md`, `.rst`, `.adoc`) or configuration

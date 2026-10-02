@@ -34,7 +34,7 @@ description: What the skill does plus when to use it, trigger phrasing included.
 - Frontmatter is YAML and must parse. A colon followed by a space inside an unquoted value ends the scalar and breaks the file, so single-quote the `description` when it contains one. A block that fails to parse makes the skill disappear from `skill_search` with no error anywhere.
 
 Reference docs, core/docs/*.md:
-- Agent-facing format: headers and bullets only; no bold, no tables, no em dashes, no decorative markdown (AGENTS.md rule 16).
+- Agent-facing format: headers and bullets only; no bold, no tables, no em dashes, no decorative markdown (AGENTS.md section 0 rule 8).
 - One topic per file. Order: purpose, rules, procedure.
 
 Language docs, core/docs/languages/<lang>.md:

@@ -1,6 +1,6 @@
 # AI-writing tells - human-facing prose (v2026-09-07)
 
-Scope: apply to prose written into files that humans read: README.md, docs/, code comments, commit messages, PR/commit titles, CHANGELOG. Never apply to chat replies to the user and never to .ai/ files (rule 16 formatting governs those).
+Scope: apply to prose written into files that humans read: README.md, docs/, code comments, commit messages, PR/commit titles, CHANGELOG. Never apply to chat replies to the user and never to .ai/ files (AGENTS.md section 0 rule 8, formatting by audience, governs those).
 
 These are tells that make prose read as template AI output. They are not errors in general; remove them from your own drafts.
 

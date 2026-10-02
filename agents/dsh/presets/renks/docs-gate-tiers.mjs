@@ -36,6 +36,14 @@
 export const REQUIRED_DOCS = [
   { id: 'principles', repoPath: 'core/principles.md', tier: 'core' },
   { id: 'git-workflow', repoPath: 'core/docs/git-workflow.md', tier: 'core', commits: true },
+  // `ai-writing.md` joins at the commit for the same reason `git-workflow.md`
+  // does, and only there. Rule 9 of AGENTS.md scopes it to prose written into
+  // files for humans, and `development-workflow.md` places its check in the
+  // review phase immediately before the commit, so the commit IS its trigger.
+  // It is the smallest doc in the set at 3.2 KB, and `ship` already expects its
+  // reader. Not gating it at all left the doc in the reference index with three
+  // callers and no enforcement, which is the failure this whole gate answers.
+  { id: 'ai-writing', repoPath: 'core/docs/ai-writing.md', tier: 'core', commits: true },
   { id: 'development-workflow', repoPath: 'core/docs/development-workflow.md', tier: 'code' },
   { id: 'complexity', repoPath: 'core/docs/complexity.md', tier: 'code' },
   { id: 'maintainability', repoPath: 'core/docs/maintainability.md', tier: 'code' },

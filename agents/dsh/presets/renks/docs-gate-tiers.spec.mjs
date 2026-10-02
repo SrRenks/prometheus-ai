@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 
 import {
   CODE_TIER_PATHS,
+  COMMIT_PATHS,
   CORE_TIER_PATHS,
   REPO,
   WORKSPACE,
@@ -93,4 +94,37 @@ test('the language guide is the only extra a Python edit needs', async () => {
     await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/tool.py` }, agent }),
     { kind: 'allow' },
   )
+})
+
+test('the commit trigger carries both commit-time docs, and only at a commit', async () => {
+  // `ai-writing.md` was in the reference index with three callers - rule 9 of
+  // AGENTS.md, the prose scan in `development-workflow.md`, and the `ship` skill -
+  // and no enforcement anywhere. A session could write every README in a repo and
+  // commit all of them without opening the rules for the prose it was shipping.
+  //
+  // It joins at the commit rather than up front for the reason the commit trigger
+  // exists: the doc governs prose a human will read, and the review phase places
+  // its check immediately before the commit. So the commit IS the trigger, and an
+  // ordinary edit is not.
+  assert.ok(COMMIT_PATHS.length >= 2, 'the commit trigger carries more than git workflow')
+  assert.ok(
+    COMMIT_PATHS.some(path => path.endsWith('ai-writing.md')),
+    'the prose rules are demanded at the commit',
+  )
+
+  const h = mount()
+  const agent = fakeAgent('s-commit-docs')
+  const edit = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.equal(edit.kind, 'deny')
+  assert.doesNotMatch(edit.reason, /ai-writing/, 'an ordinary edit is not the commit act')
+
+  const committing = await h.pre({ name: 'bash', arguments: { command: 'git commit -m "x"' }, agent })
+  assert.equal(committing.kind, 'deny')
+  assert.match(committing.reason, /ai-writing/, 'the commit must demand the prose rules')
+
+  // The commit-time docs are independent: reading one leaves the other required.
+  const [first] = COMMIT_PATHS
+  await readDoc(h, agent, first)
+  const afterOne = await h.pre({ name: 'bash', arguments: { command: 'git commit -m "x"' }, agent })
+  assert.equal(afterOne.kind, 'deny', 'one commit-time doc does not satisfy the other')
 })
