@@ -212,9 +212,16 @@ fi
 #
 # So this runs install in every profile that has the bundle. It is a no-op for
 # the hardlinked ones and the only thing that works for the others.
-if [ "${WIRED}" = "0" ] && [ "${SYNC_FORCE:-0}" != "1" ]; then
-  echo "  [skip] nothing was declared, so no profile needs an install"
-elif command -v pnpm >/dev/null 2>&1; then
+# Run for any profile that already declares the bundle, whether or not this run
+# declared it. Gating this on the wiring step was wrong: the bundle is also
+# PRUNED (a preset dropped from the roster loses its patch file), and a profile
+# only drops the removed preset by re-running install. Skipping it left a stale
+# preset mounted with everything reporting success.
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "  [warn] pnpm not found: run pnpm install in each profile to pick up the bundle"
+elif [ "${WIRED}" = "0" ] && ! grep -rq 'dsh-user-presets' "${DSH_H}"/profiles/*/package.json 2>/dev/null; then
+  echo "  [skip] no profile declares the bundle, so nothing to install"
+else
   for profile in "${DSH_H}"/profiles/*/; do
     [ -f "${profile}package.json" ] || continue
     grep -q 'dsh-user-presets' "${profile}package.json" 2>/dev/null || continue
@@ -225,8 +232,6 @@ elif command -v pnpm >/dev/null 2>&1; then
       echo "  [warn] '${name}': pnpm install failed; run it by hand to pick up the bundle"
     fi
   done
-else
-  echo "  [warn] pnpm not found: run pnpm install in each profile to pick up the bundle"
 fi
 
 echo ""
