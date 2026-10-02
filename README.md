@@ -355,6 +355,9 @@ short: a sentence that must not fail belongs behind a control, not in the text.
 | `block-danger` | the bash command, before it runs | Claude Code hooks, this section |
 | linters, tests, the review checklist | the artifact, after it exists | `validation-checklist.md` |
 
+This table mirrors the report `setup.sh` prints at install time; an edit here
+belongs there too.
+
 The gate is the strongest of the three, and deliberately the narrowest: it denies
 a mutating call until the behavioural docs that call needs have been read. That
 failure is the one this repo measured as systematic — of the 84 sessions that
@@ -508,9 +511,18 @@ The checklist an agent runs before declaring a task done is a separate document:
 
 ## Status
 
-Used daily on this machine across Claude Code, Cursor, and dsh. The dsh preset
-tracks whichever dsh version is installed through a patch instead of freezing a
-copy of the upstream recipe.
+Wired for Claude Code, Cursor, Codex, Gemini CLI, and dsh; on this machine only
+dsh is installed, and the other four carry links that no binary reads until one
+is. `setup.sh` reports which harnesses it found and which tools the language
+guides expect, because nothing fails when a harness is absent — the links simply
+sit there, and a rule that reaches nothing looks the same as a rule that works.
+
+Where the rules are enforced rather than read differs by harness, and the table
+in Guardrails names what each one mediates. Two of the five have a control
+behind them.
+
+The dsh preset tracks whichever dsh version is installed through a patch instead
+of freezing a copy of the upstream recipe.
 
 Changes to the default preset or the shared rules face the retained eval set in
 `core/docs/evals.md` first: anchor checks that always run, plus a task set for

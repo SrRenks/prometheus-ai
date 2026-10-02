@@ -101,3 +101,34 @@ echo "  Git identity : ~/.config/git/identity (conditional include from ~/.gitco
 echo ""
 echo "dsh (DeepSeek Harness) is installed separately:"
 echo "  bash \"$SRC/agents/dsh/install.sh\""
+echo ""
+
+# ── What is actually present, and where the rules stop being enforced ────────
+# Wiring a harness is not the same as having it, and the rules reach each one
+# differently. `dsh` admits a plugin that DENIES a tool call; Claude Code admits
+# hooks; Cursor, Codex and Gemini receive the rules as prose with nothing behind
+# them. Reporting this at install time is the only place a reader learns it,
+# because nothing fails when a harness is absent - the links just sit there.
+echo "Harnesses found on PATH:"
+for tool in dsh claude cursor codex gemini; do
+    if command -v "$tool" >/dev/null 2>&1; then
+        printf '  %-10s %s\n' "$tool" "$(command -v "$tool")"
+    else
+        printf '  %-10s not installed (its config is linked but unused)\n' "$tool"
+    fi
+done
+echo ""
+# Mirrors the Guardrails table in README.md; an edit here belongs there too.
+echo "Where the shared rules are enforced, not just read:"
+echo "  dsh          docs-gate denies a mutating tool call until the docs are read"
+echo "  Claude Code  block-danger and lint-check hooks"
+echo "  Cursor       none - rules activate by glob, nothing mediates"
+echo "  Codex        none - prose only"
+echo "  Gemini CLI   none - prose only"
+echo ""
+echo "Tooling the language guides expect (per core/docs/languages/):"
+for tool in uv ruff mypy radon bandit golangci-lint cargo-audit clippy; do
+    command -v "$tool" >/dev/null 2>&1 || printf '  missing: %s\n' "$tool"
+done
+echo "  (a missing linter does not break the guides; it means the budgets they"
+echo "   state are not being checked by anything on this machine)"
