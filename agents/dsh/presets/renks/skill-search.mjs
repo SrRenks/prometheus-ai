@@ -46,47 +46,98 @@ function toJsonSchema(spec) {
   return { type: 'object', properties, required, additionalProperties: false }
 }
 
+/** Normalize a query into lowercase tokens for simple substring matching. */
+function tokens(text) {
+  return (text || '').toLowerCase().split(/[^a-z0-9_-]+/).filter(Boolean)
+}
+
+/**
+ * Answer one `skill_search`.
+ *
+ * @param ctx - the cordis context owning the skill service.
+ * @param args - the call arguments, carrying `query`.
+ * @param exec - the tool execution context, for scope and cancellation.
+ * @returns `{ text }`, the model-facing result. Never throws: a failed search
+ *   reports itself rather than aborting the turn.
+ */
+async function runSearch(ctx, args, exec) {
+  const wanted = tokens(args.query)
+  const scope = exec?.agent ?? ctx
+  try {
+    const all = await ctx.skills.list({
+      scope,
+      cwd: exec?.agent?.session?.header?.cwd,
+      signal: exec?.signal,
+    })
+    const matches = all.filter((skill) => {
+      if (wanted.length === 0) return true
+      const haystack = tokens(`${skill.name} ${skill.description ?? ''} ${skill.whenToUse ?? ''}`).join(' ')
+      return wanted.every((token) => haystack.includes(token))
+    })
+    const lines = matches.slice(0, MAX_RESULTS).map((skill) => {
+      const desc = (skill.description || '').split('\n')[0]
+      return `- ${skill.name}: ${desc}`
+    })
+    if (lines.length === 0) return { text: `No skills match "${args.query}". Use skill_search with other keywords.` }
+    const extra = matches.length > MAX_RESULTS ? `\n...(${matches.length - MAX_RESULTS} more)` : ''
+    return { text: `Matching skills (${matches.length}):\n${lines.join('\n')}${extra}\n\nLoad one with skill_load (exact name).` }
+  } catch (error) {
+    return { text: `skill_search unavailable: ${String((error && error.message) || error)}` }
+  }
+}
+
+/**
+ * Answer one `skill_load`, injecting the skill body for the next request.
+ *
+ * @param ctx - the cordis context owning the skill service.
+ * @param args - the call arguments, carrying the exact `name`.
+ * @param exec - the tool execution context; an agent is required.
+ * @returns `{ text }`, the model-facing result.
+ */
+async function runLoad(ctx, args, exec) {
+  try {
+    const agent = exec?.agent
+    if (agent === undefined) return { text: 'skill_load requires an agent context.' }
+    const skill = await ctx.skills.get(args.name, {
+      scope: agent,
+      cwd: agent.session.header.cwd,
+      signal: exec?.signal,
+    })
+    if (skill === undefined) {
+      return { text: `No skill named "${args.name}". Run skill_search to list available skills.` }
+    }
+    const body = extractSkillBody(skill)
+    if (body.length === 0) return { text: `Skill "${args.name}" has no loadable body.` }
+    // Queue the skill content as a non-waking next-step context message,
+    // exactly like dsh-tool-skill's invocation injection.
+    agent.inject({
+      id: `skill-load-${args.name}-${Date.now()}`,
+      role: 'user',
+      content: [{ type: 'text', text: body }],
+      source: { kind: 'skill-invocation', name: args.name, form: 'instructions' },
+    })
+    return { text: `Skill "${args.name}" loaded; its instructions will be injected for the next request.` }
+  } catch (error) {
+    return { text: `skill_load failed: ${String((error && error.message) || error)}` }
+  }
+}
+
+/** The output contract both tools share. */
+const TEXT_OUTPUT = {
+  schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string' } }, required: ['text'] },
+  render: (_a, v) => [{ type: 'text', text: v.text }],
+}
+
 /** Register the two on-demand skill tools. */
 export function apply(ctx) {
-  /** Normalize a query into lowercase tokens for simple substring matching. */
-  const tokens = (text) => (text || '').toLowerCase().split(/[^a-z0-9_-]+/).filter(Boolean)
-
   ctx.tools.register({
     name: 'skill_search',
     description: 'Search the available skills by keyword and return matching skill names with short descriptions. This session keeps NO skill catalog in the prompt; if a task looks like it matches a skill (document conversion, image processing, game reviews, markdown, PDF, spreadsheets, ...), call skill_search FIRST to find it, then skill_load to activate it. Do NOT assume skill names from memory.',
     parameters: toJsonSchema({
       query: { type: 'string', required: true, description: 'search keywords (e.g. "pdf", "obsidian", "game review")' },
     }),
-    output: {
-      schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string' } }, required: ['text'] },
-      render: (_a, v) => [{ type: 'text', text: v.text }],
-    },
-    async execute(args, exec) {
-      const wanted = tokens(args.query)
-      const scope = exec?.agent ?? ctx
-      try {
-        const all = await ctx.skills.list({
-          scope,
-          cwd: exec?.agent?.session?.header?.cwd,
-          signal: exec?.signal,
-        })
-        const matches = all.filter((skill) => {
-          if (wanted.length === 0) return true
-          const haystack = tokens(`${skill.name} ${skill.description ?? ''} ${skill.whenToUse ?? ''}`).join(' ')
-          return wanted.every((token) => haystack.includes(token))
-        })
-        const head = matches.slice(0, MAX_RESULTS)
-        const lines = head.map((skill) => {
-          const desc = (skill.description || '').split('\n')[0]
-          return `- ${skill.name}: ${desc}`
-        })
-        if (lines.length === 0) return { text: `No skills match "${args.query}". Use skill_search with other keywords.` }
-        const extra = matches.length > MAX_RESULTS ? `\n...(${matches.length - MAX_RESULTS} more)` : ''
-        return { text: `Matching skills (${matches.length}):\n${lines.join('\n')}${extra}\n\nLoad one with skill_load (exact name).` }
-      } catch (error) {
-        return { text: `skill_search unavailable: ${String((error && error.message) || error)}` }
-      }
-    },
+    output: TEXT_OUTPUT,
+    execute: (args, exec) => runSearch(ctx, args, exec),
   })
 
   ctx.tools.register({
@@ -95,39 +146,8 @@ export function apply(ctx) {
     parameters: toJsonSchema({
       name: { type: 'string', required: true, description: 'exact skill name (kebab-case, from skill_search)' },
     }),
-    output: {
-      schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string' } }, required: ['text'] },
-      render: (_a, v) => [{ type: 'text', text: v.text }],
-    },
-    async execute(args, exec) {
-      try {
-        const agent = exec?.agent
-        if (agent === undefined) return { text: 'skill_load requires an agent context.' }
-        const skill = await ctx.skills.get(args.name, {
-          scope: agent,
-          cwd: agent.session.header.cwd,
-          signal: exec?.signal,
-        })
-        if (skill === undefined) {
-          return { text: `No skill named "${args.name}". Run skill_search to list available skills.` }
-        }
-        const body = extractSkillBody(skill)
-        if (body.length === 0) {
-          return { text: `Skill "${args.name}" has no loadable body.` }
-        }
-        // Queue the skill content as a non-waking next-step context message,
-        // exactly like dsh-tool-skill's invocation injection.
-        agent.inject({
-          id: `skill-load-${args.name}-${Date.now()}`,
-          role: 'user',
-          content: [{ type: 'text', text: body }],
-          source: { kind: 'skill-invocation', name: args.name, form: 'instructions' },
-        })
-        return { text: `Skill "${args.name}" loaded; its instructions will be injected for the next request.` }
-      } catch (error) {
-        return { text: `skill_load failed: ${String((error && error.message) || error)}` }
-      }
-    },
+    output: TEXT_OUTPUT,
+    execute: (args, exec) => runLoad(ctx, args, exec),
   })
 }
 

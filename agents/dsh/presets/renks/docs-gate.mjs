@@ -42,6 +42,7 @@
  */
 
 import { createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
+import { createSeamFor } from './docs-gate-seam.mjs'
 import {
   absolutePath,
   classifyCall,
@@ -299,51 +300,7 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  /**
-   * The host filesystem seam, or a `node:fs` stand-in when absent.
-   *
-   * The real service separates the two calls: `resolve(path)` returns an opaque
-   * target `{ targetKey, displayPath }` with NO methods, and `stat(target)` is a
-   * method on the SERVICE. Folding both into one `stat(path, signal)` here keeps
-   * that asymmetry behind a single surface, so callers cannot reach for a method
-   * that does not exist. That mistake is what silently disabled this gate before
-   * 2026-10-02: `target.stat()` threw a TypeError on every probe, every probe read
-   * as "absent", and the gate found no docs to enforce.
-   *
-   * @param cwd - the session working directory, for relative paths.
-   * @param signal - cancellation signal for the round trips.
-   * @returns `{ stat(path, signal) }` resolving to `{ type }` or undefined.
-   */
-  const seamFor = (cwd, signal) => {
-    const fs = ctx.get('fs')
-    if (fs !== undefined) {
-      return {
-        stat: async (path) => {
-          const target = await fs.resolve(path, { cwd, signal })
-          const info = await fs.stat(target, signal)
-          return info === undefined ? undefined : { type: info.type }
-        },
-        // Content, not metadata: the ledger fingerprints what was read, so the
-        // gate can tell "this document was read" from "this version was read".
-        readText: async (path) => {
-          const target = await fs.resolve(path, { cwd, signal })
-          return await fs.readText(target, signal)
-        },
-      }
-    }
-    return {
-      stat: async (path) => {
-        const { stat } = await import('node:fs/promises')
-        const info = await stat(path)
-        return { type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other' }
-      },
-      readText: async (path) => {
-        const { readFile } = await import('node:fs/promises')
-        return await readFile(path, 'utf8')
-      },
-    }
-  }
-
+  const seamFor = createSeamFor(ctx)
   const repoRoots = [
     ...(Array.isArray(config.repoRoots) ? config.repoRoots : []),
     ...defaultRepoRoots(),
