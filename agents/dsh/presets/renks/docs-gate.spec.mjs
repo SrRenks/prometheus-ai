@@ -473,21 +473,3 @@ test('a workspace with no docs to find opens the gate', async () => {
   assert.deepEqual(second, { kind: 'allow' })
 })
 
-test('the enforced doc set and the hinted doc set cannot drift apart', async () => {
-  // `instruction-hint` tells the model which files to read; the gate decides
-  // which reads lift the block. If those two diverge, the agent is either
-  // blocked for a file it was never told about, or told to read a file that
-  // does not matter. Grouped by tier, they must be the same registry.
-  const { REQUIRED_DOCS: HINTED } = await import('./instruction-hint.mjs')
-  const byTier = {}
-  for (const doc of REQUIRED_DOCS) {
-    byTier[doc.tier] ??= []
-    byTier[doc.tier].push(doc.repoPath)
-  }
-  assert.deepEqual(
-    HINTED,
-    byTier,
-    'instruction-hint must advertise the gate registry, grouped by tier',
-  )
-})
-

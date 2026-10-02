@@ -8,8 +8,10 @@
  *
  *   - 33% of transcripts had read AGENTS.md / CLAUDE.md / `.ai/*.md` at all;
  *   - 10% had read ANY core behavioural doc;
- *   - the `instruction-hint` plugin delivered its hint in 30 sessions, and 17
- *     of those still never opened an instruction file;
+ *   - 17 of the 30 sessions the old hint plugin counted as "delivered" still
+ *     never opened an instruction file (and on 2026-10-02 that plugin was
+ *     found never to have reached a live session at all, so treat "delivered"
+ *     as unverified rather than as a fact);
  *   - replayed against this gate's classifier, 83 of the 84 sessions that
  *     mutated anything (99%) made their first mutation before reading the set,
  *     at a median of 3 tool calls in. Numbers move as sessions accumulate;

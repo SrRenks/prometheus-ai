@@ -14,8 +14,10 @@
  *   - sessions that read an instruction file (AGENTS.md / CLAUDE.md / .ai/*.md)
  *   - sessions that read any core behavioural doc
  *   - per-doc read counts
- *   - for sessions that received the `instruction-hint`, whether an instruction
- *     file was ever opened afterwards, and how many tool calls that took
+ *
+ * It used to measure how many tool calls passed between the removed
+ * `instruction-hint` and the first instruction-file read. That measurement went
+ * with the plugin: it counted a signal that never reached a live session.
  *
  * CAVEAT. "Read" means a tool call named a path; it does not prove the content
  * reached the model's context. Treat the numbers as an upper bound on
@@ -95,24 +97,10 @@ function analyse(text) {
   if (calls.length === 0) return undefined
   const blob = calls.join('\n')
   const core = CORE_DOCS.filter(doc => blob.includes(doc))
-  const lines = text.split('\n')
-  const hintAt = lines.findIndex(line => line.includes('instruction-hint'))
-  let callsUntilRead = undefined
-  if (hintAt >= 0) {
-    let seen = 0
-    for (let i = hintAt + 1; i < lines.length; i++) {
-      if (!READ_TOOLS_RE.test(lines[i])) continue
-      seen++
-      if (INSTRUCTION_FILE_RE.test(lines[i])) { callsUntilRead = seen; break }
-      if (seen > 40) break
-    }
-  }
   return {
     toolCalls: calls.length,
     instructionFile: INSTRUCTION_FILE_RE.test(blob),
     coreDocs: core,
-    hinted: hintAt >= 0,
-    callsUntilRead,
   }
 }
 
@@ -125,15 +113,11 @@ function main() {
     if (result !== undefined) rows.push({ path, ...result })
   }
   const total = rows.length
-  const hinted = rows.filter(r => r.hinted)
-  const followed = hinted.filter(r => r.callsUntilRead !== undefined)
   const summary = {
     sessionsRoot: root,
     transcripts: total,
     readInstructionFile: rows.filter(r => r.instructionFile).length,
     readAnyCoreDoc: rows.filter(r => r.coreDocs.length > 0).length,
-    hinted: hinted.length,
-    hintedWithoutRead: hinted.length - followed.length,
     perDoc: Object.fromEntries(CORE_DOCS.map(doc => [doc, rows.filter(r => r.coreDocs.includes(doc)).length])),
   }
   if (json) {
@@ -145,8 +129,6 @@ function main() {
   console.log(`transcripts with reads   : ${total}`)
   console.log(`read an instruction file : ${summary.readInstructionFile} (${pct(summary.readInstructionFile)})`)
   console.log(`read any core doc        : ${summary.readAnyCoreDoc} (${pct(summary.readAnyCoreDoc)})`)
-  console.log(`received the hint        : ${hinted.length}`)
-  console.log(`  ...still never read    : ${summary.hintedWithoutRead}`)
   console.log('per-doc read counts:')
   for (const [doc, count] of Object.entries(summary.perDoc)) console.log(`  ${String(count).padStart(4)}  ${doc}`)
 }

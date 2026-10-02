@@ -69,10 +69,9 @@ rebuild_recipe() {
     return
   fi
   # Every plugin row this preset adds must survive the merge. docs-gate is the
-  # enforcement half of the instruction contract: losing it silently would
-  # return the machine to hint-only delivery.
-  if ! grep -q 'id: instruction-hint' "${RESULT}" \
-     || ! grep -q 'id: skill-search' "${RESULT}" \
+  # enforcement of the instruction contract, so losing it silently would return
+  # the machine to guidance with nothing behind it.
+  if ! grep -q 'id: skill-search' "${RESULT}" \
      || ! grep -q 'id: docs-gate' "${RESULT}"; then
     STATUS="merged recipe lost a plugin row"
     return

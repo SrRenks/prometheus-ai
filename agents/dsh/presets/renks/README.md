@@ -6,10 +6,9 @@ install time from whatever dsh version is installed on the machine.
 
 | File | Role |
 |---|---|
-| `agent.cordis.patch` | Your personal delta on top of the stock recipe (3 changes: instruction-hint, docs-gate, skill-search). GENERATED - do not hand-edit. |
+| `agent.cordis.patch` | Your personal delta on top of the stock recipe (2 changes: docs-gate, skill-search). GENERATED - do not hand-edit. |
 | `stock-baseline.agent.cordis.yml` | The 3-way merge base, kept byte-identical to the installed stock `standard` recipe. GENERATED. |
 | `fallback.agent.cordis.yml` | Last-known-good generated recipe. Installed only when even a regenerated patch cannot merge. GENERATED. |
-| `instruction-hint.mjs` | Replaces the full `AGENTS.md` digest with one hint, and names the mandatory doc set by path. |
 | `docs-gate.mjs` | Denies mutating tool calls until the session has read the mandatory doc set. See below. |
 | `docs-gate-policy.mjs` | The fs seam, the doc resolution and the denials. |
 | `docs-gate-target.mjs` | Path and `bash` parsing: what counts as a target, and where the workspace boundary is. |
@@ -17,7 +16,6 @@ install time from whatever dsh version is installed on the machine.
 | `docs-gate.spec.mjs`, `docs-gate-tiers.spec.mjs` | Test suites: gate behaviour, and the tier/language rules. NOT installed. |
 | `docs-gate.testkit.mjs` | Fake fs seam, fake agent and waterfall driver shared by the spec. NOT installed. |
 | `skill-search.mjs` | Replaces the ~9KB skill-catalog injection with `skill_search` / `skill_load`. |
-| `compaction-epoch.mjs` | Shared compaction-boundary helper for the hint and the gate. |
 | `preset.yml` | Name/description shown in `/preset`. |
 
 The `.mjs` plugins import only each other, never dsh internals, so an
@@ -69,14 +67,17 @@ command that cannot be attributed to a file all fall through to `code`. `.txt` i
 deliberately not prose, because it is the usual destination of command output.
 Over-gating shows up in the denial and can be corrected; under-gating is silent.
 
-`instruction-hint.mjs` derives its list from the same registry, so the hint
-advertises the tiered set the gate actually enforces.
-
-It was added because hints were being skipped. An audit of the 96 recorded
+It was added because guidance was being skipped. An audit of the 96 recorded
 sessions in `~/.dsh/sessions` (`node tools/audit-instruction-reads.mjs`) found
-33% had read an instruction file, 8% had read any core behavioural doc, and 17 of
-the 30 sessions that received the hint still never opened one. The hint fired;
-nothing enforced it.
+33% had read an instruction file and 8% had read any core behavioural doc, so
+nothing enforced the reads.
+
+A plugin that only NAMED the doc set was tried first and removed on 2026-10-02.
+It never reached a live session - no hint text appeared in any recorded
+transcript, and its `agent/pre-step` handler never ran - while the gate beside it
+in the same composition worked throughout. Its removal is why the recipe now
+carries two changes instead of three: a component that contributes nothing is
+worse than absent, because it costs code, tests and a place in the patch.
 
 Design constraints, all of them load-bearing:
 
@@ -92,10 +93,9 @@ Design constraints, all of them load-bearing:
 - A subagent inherits its root session's evidence.
 - One `Set` lookup once the set has been read.
 
-Test it with `node --test 'agents/dsh/presets/renks/*.spec.mjs'`. One case pins the enforced
-set to the set `instruction-hint.mjs` advertises, so the two cannot drift apart.
+Test it with `node --test 'agents/dsh/presets/renks/*.spec.mjs'`.
 
 Workflow after a dsh update: `git pull && bash dsh/install.sh`.
-- Clean merge → new stock behavior + your three changes.
+- Clean merge → new stock behavior + your two changes.
 - Stale baseline → `install.sh` regenerates the recipe and merges again.
 - Still conflicting → last-known-good installed, with the command to regenerate.

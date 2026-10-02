@@ -1,29 +1,23 @@
 --- a/agent.cordis.yml
 +++ b/agent.cordis.yml
-@@ -28,10 +28,34 @@
+@@ -28,10 +28,27 @@
      prefix: >-
        You are a coding agent powered by the {{model}} model.
  
 -- id: agent-instructions
 -  name: '@deepseek-ai/dsh-agent-instructions'
+-  config:
+-    maxBytes: 65536
 +# Instruction delivery — evidence-based (2026-09 config review): the full
 +# AGENTS.md/CLAUDE.md digest is NOT injected. Large always-on injections
 +# perturb trajectories (liangshen issue #6: skill-catalog injection broke
 +# first-request anchoring 0/9 vs ~81% without) and dilute attention (context
 +# rot; Anthropic "smallest set of high-signal tokens"; ETH Zurich
-+# arXiv:2602.11988, +20-23% inference cost). Instead ONE hint is injected once
-+# after the session's first durable tool call — "instruction files exist; read
-+# them" — and the model reads the files itself when relevant. Files probed:
-+# project-root AGENTS.md / CLAUDE.md / AGENTS.local.md / CLAUDE.local.md and
-+# $DSH_HOME/AGENTS.md. NOTE: .ai/project.md and .ai/session.md are NOT
-+# discovered by this plugin — the shared AGENTS.md orders the agent to read
-+# them at session start.
-+- id: instruction-hint
-+  name: ./instruction-hint.mjs
-   config:
--    maxBytes: 65536
-+    promoteOn: tool-call
-+    includeSubagents: true
++# arXiv:2602.11988, +20-23% inference cost). A hint that named the files was
++# tried instead and removed on 2026-10-02: it never reached a live session, and
++# the gate below enforces the same contract by denial. NOTE: .ai/project.md and
++# .ai/session.md are NOT discovered by any plugin — the shared AGENTS.md orders
++# the agent to read them at session start.
 +
 +# THE ENFORCEMENT for the section above. `tools/pre-execute` denies every
 +# mutating tool call in a workspace whose behavioural docs have not been read,
@@ -38,7 +32,7 @@
  
  # ── shell ───────────────────────────────────────────────────────────────────
  
-@@ -78,14 +102,19 @@
+@@ -78,14 +95,19 @@
  
  # The skill REGISTRY lives in the host composition and is layered per scope:
  # these rows register into THIS preset's layer of it, so they need no realm.
@@ -63,7 +57,7 @@
  
  # ── goals ───────────────────────────────────────────────────────────────────
  
-@@ -100,6 +129,10 @@
+@@ -100,6 +122,10 @@
  
  # ── plan mode ───────────────────────────────────────────────────────────────
  
@@ -74,7 +68,7 @@
  # Plan state is per-agent by nature, so an entry-local realm is not a
  # workaround here — it is the correct lifetime.
  - id: planning
-@@ -252,6 +285,9 @@
+@@ -252,6 +278,9 @@
  
  # The `web` service and its search provider stay in the host composition; only
  # the model-facing tool is per-session.

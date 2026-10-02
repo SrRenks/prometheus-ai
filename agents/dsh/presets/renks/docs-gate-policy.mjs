@@ -241,8 +241,8 @@ async function fileExists(seam, path, signal) {
 
 /**
  * Find the workspace root: the first ancestor of `cwd` holding a VCS marker.
- * Mirrors `instruction-hint.mjs` so both plugins agree on where a project
- * begins.
+ * Mirrors the workspace-root walk the removed hint plugin used, so the two
+ * halves of the instruction contract agreed on where a project begins.
  *
  * A marker probe that fails outright still means "no marker here": the walk
  * continues upward and settles on `cwd`. The gate's job is to make the agent

@@ -175,13 +175,16 @@ injections:
 
 | Stock behavior | Replaced by | What happens instead |
 |---|---|---|
-| `dsh-agent-instructions` inlines the `AGENTS.md` / `CLAUDE.md` digest | `instruction-hint.mjs` | one hint per session, after the first durable promotion signal: the instruction files exist, read them before acting - and it names the mandatory doc set by path |
+| `dsh-agent-instructions` inlines the `AGENTS.md` / `CLAUDE.md` digest | `docs-gate.mjs` | nothing is injected; the digest's read-on-demand index is enforced instead, and the denial names the files it needs |
 | `dsh-tool-skill` injects the ~9KB `<available_skills>` catalog into the first step and again after every promotion or compaction | `skill-search.mjs` | `skill_search` lists matching names on demand, `skill_load` pulls one body; the catalog costs nothing until a task needs it |
 | nothing enforced the read-on-demand index at the end of `AGENTS.md` | `docs-gate.mjs` | mutating tool calls are denied until the session has read the mandatory doc set; the denial names the files and lifts as the reads land |
 
-`compaction-epoch.mjs` backs the hint and the gate. It tracks the compaction
-boundary so a promotion signal recorded before a compaction does not count after
-it. The plugins import only each other, never dsh internals, so an upstream
+A third plugin, `instruction-hint.mjs`, was removed on 2026-10-02. It named the
+doc set after the session's first tool call and never reached a live session: no
+hint text appeared in any recorded transcript and its `agent/pre-step` handler
+never ran, while the gate beside it in the same composition worked throughout.
+What replaced it is the gate itself, which is the stronger form of the same
+promise. The plugins import only each other, never dsh internals, so an upstream
 release does not break them.
 
 ### Why the gate exists
@@ -197,11 +200,13 @@ An audit over the 96 recorded sessions in `~/.dsh/sessions` (`tools/audit-instru
 |---|---|
 | read `AGENTS.md`, `CLAUDE.md` or `.ai/*.md` at all | 34% |
 | read any core behavioural doc | 10% |
-| received the `instruction-hint` and still never opened an instruction file | 17 of 30 |
+| in the sessions the old hint plugin counted as "delivered", never opened an instruction file | 17 of 30 |
 
-Of the sessions where the hint did land, the median delay before the read was two
-tool calls: the first edits happened before the rules were in context. The hint
-fired; nothing enforced it.
+Where the old hint was recorded as delivered, the median delay before the read
+was two tool calls: the first edits happened before the rules were in context.
+The hint fired; nothing enforced it. And on 2026-10-02 the hint was found never
+to have reached a live session at all, so even that 30-session figure counts
+delivery it may not have achieved.
 
 Replaying those same transcripts against the gate's own classifier is the
 strongest argument for enforcing at the tool call rather than in a message: of
@@ -258,9 +263,9 @@ than no gate:
   files, and an unresolvable workspace fails closed rather than silently
   disabling the gate.
 
-`docs-gate.spec.mjs` and `docs-gate-tiers.spec.mjs` are the test suites, and one
-case pins the enforced set to the set `instruction-hint.mjs` advertises, so the
-promise and the enforcement cannot drift apart:
+`docs-gate.spec.mjs` and `docs-gate-tiers.spec.mjs` are the test suites, and
+`docs-gate-tiers.mjs` is the single registry they both read, so the promise and
+the enforcement cannot drift apart:
 
 ```bash
 node --test 'agents/dsh/presets/renks/*.spec.mjs'

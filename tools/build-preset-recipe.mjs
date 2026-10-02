@@ -46,20 +46,12 @@ const DOCS_GATE_ROW = `
   name: ./docs-gate.mjs
 `
 
-/** The instruction-hint row as this preset writes it, used as the insert anchor. */
-const HINT_ROW = `- id: instruction-hint
-  name: ./instruction-hint.mjs
-  config:
-    promoteOn: tool-call
-    includeSubagents: true
-`
-
 /**
- * The stock instruction row, replaced by the hint row (the preset does NOT want
- * the full AGENTS.md digest injected). The `persona` row above it is left
- * exactly as upstream ships it: 0.2.0-rc.2 already splits it into
- * `prefix:`/`suffix:`, and rewriting a block this preset has no opinion about is
- * how a "personal delta" turns into an unmergeable fork.
+ * The stock instruction row. The preset REPLACES it: a full AGENTS.md digest is
+ * not injected, because the gate enforces the reads instead of advertising
+ * them. The `persona` row above is left exactly as upstream ships it, since
+ * rewriting a block this preset has no opinion about is how a "personal delta"
+ * turns into an unmergeable fork.
  */
 const STOCK_INSTRUCTIONS_OLD = `- id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
@@ -67,20 +59,18 @@ const STOCK_INSTRUCTIONS_OLD = `- id: agent-instructions
     maxBytes: 65536
 `
 
-const HINT_ROW_WITH_CONFIG = `${HINT_ROW}${DOCS_GATE_ROW}`
+const GATE_ROW_REPLACEMENT = DOCS_GATE_ROW
 
 const HINT_BLOCK = `# Instruction delivery — evidence-based (2026-09 config review): the full
 # AGENTS.md/CLAUDE.md digest is NOT injected. Large always-on injections
 # perturb trajectories (liangshen issue #6: skill-catalog injection broke
 # first-request anchoring 0/9 vs ~81% without) and dilute attention (context
 # rot; Anthropic "smallest set of high-signal tokens"; ETH Zurich
-# arXiv:2602.11988, +20-23% inference cost). Instead ONE hint is injected once
-# after the session's first durable tool call — "instruction files exist; read
-# them" — and the model reads the files itself when relevant. Files probed:
-# project-root AGENTS.md / CLAUDE.md / AGENTS.local.md / CLAUDE.local.md and
-# $DSH_HOME/AGENTS.md. NOTE: .ai/project.md and .ai/session.md are NOT
-# discovered by this plugin — the shared AGENTS.md orders the agent to read
-# them at session start.
+# arXiv:2602.11988, +20-23% inference cost). A hint that named the files was
+# tried instead and removed on 2026-10-02: it never reached a live session, and
+# the gate below enforces the same contract by denial. NOTE: .ai/project.md and
+# .ai/session.md are NOT discovered by any plugin — the shared AGENTS.md orders
+# the agent to read them at session start.
 `
 
 /** The stock skill block, replaced by the on-demand search/load pair. */
@@ -132,7 +122,7 @@ const WEB_ANCHOR = `- id: tool-web
 
 /** Patches this preset applies to the stock recipe, in application order. */
 const EDITS = [
-  { id: 'instructions -> hint + docs-gate', old: STOCK_INSTRUCTIONS_OLD, new: `${HINT_BLOCK}${HINT_ROW_WITH_CONFIG}` },
+  { id: 'instructions -> docs-gate', old: STOCK_INSTRUCTIONS_OLD, new: `${HINT_BLOCK}${GATE_ROW_REPLACEMENT}` },
   { id: 'skill catalog -> search/load', old: STOCK_SKILL_OLD, new: SKILL_NEW },
   { id: 'plan-mode note', old: PLAN_ANCHOR, new: PLAN_NOTE },
   { id: 'web-fetch note', old: WEB_ANCHOR, new: WEB_NOTE },
@@ -199,9 +189,9 @@ function applyEdits(stock, stockPath) {
     target = target.replace(edit.old, edit.new)
   }
   const gateRows = occurrences(target, '- id: docs-gate')
-  const hintRows = occurrences(target, '- id: instruction-hint')
-  if (gateRows !== 1 || hintRows !== 1) {
-    return { error: `post-edit sanity failed: docs-gate rows=${gateRows}, instruction-hint rows=${hintRows}` }
+  const stockRows = occurrences(target, '- id: agent-instructions')
+  if (gateRows !== 1 || stockRows !== 0) {
+    return { error: `post-edit sanity failed: docs-gate rows=${gateRows}, stock instruction rows=${stockRows}` }
   }
   return { target }
 }
