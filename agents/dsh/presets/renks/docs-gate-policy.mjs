@@ -320,6 +320,7 @@ async function resolveConfigDocs({ resolve, repoRoots, signal }) {
           path,
           tier: doc.tier,
           language: doc.language,
+          commits: doc.commits,
           display: `~/.config/agent-config/${doc.repoPath}`,
         })
       }

@@ -42,16 +42,25 @@ instead of writing a patch that silently degrades the install.
 session has read what that call's TIER requires, plus the project's
 `.ai/project.md` when it exists:
 
-- `core` — every change, prose included: `core/principles.md`,
-  `core/docs/git-workflow.md`, `core/docs/development-workflow.md`.
-- `code` — source changes only: `core/docs/complexity.md`,
-  `core/docs/maintainability.md`.
+- `core` — every change, prose included: `core/principles.md`.
+- `code` — source changes only: `core/docs/development-workflow.md`,
+  `core/docs/complexity.md`, `core/docs/maintainability.md`.
 - `language` — added on top when the changed file's language has a guide:
   `core/docs/languages/{python,go,rust,kotlin}.md`. The guides are 800 to 1000
   bytes each (Kotlin 3.8 KB) and they state HOW the complexity budgets are
   enforced - `C901` max 10 for Python, `gocyclo` for Go, `clippy::too_many_lines`
   at 60 for Rust. Requiring the budget without the tool configuration asks the
   agent to honour a limit it cannot check.
+- `commits` — a TRIGGER, not a rung: `core/docs/git-workflow.md` is required when
+  the call is `git commit`, `git push`, `gh pr create` or `lazygit`, and at no
+  other time. The whole doc is commit and pull-request procedure, so a session
+  that never commits has no use for it. This follows the within-session
+  compliance decay measured in arXiv:2605.10039: the rules that matter are the
+  ones in play, and a doc loaded for a session that never reaches its subject is
+  context spent for nothing.
+- The three selectors - ladder, language, commit trigger - are UNIONED, because
+  none implies another: a prose session that commits needs `git-workflow.md`
+  without ever needing the code tier.
 
 The tier is chosen by positive identification. A target is spared the code tier
 only when its extension says prose (`.md`, `.rst`, `.adoc`) or configuration

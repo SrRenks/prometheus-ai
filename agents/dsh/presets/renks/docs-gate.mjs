@@ -46,6 +46,7 @@ import {
   describeError,
   docsForTier,
   findWorkspaceRoot,
+  isCommitCommand,
   isMutationTool,
   languageForTarget,
   normalizePath,
@@ -58,6 +59,9 @@ import {
 } from './docs-gate-policy.mjs'
 
 export * from './docs-gate-policy.mjs'
+
+/** Mutation kinds that can carry the commit act. */
+const COMMIT_KINDS = new Set(['git-write', 'gh-write', 'lazygit'])
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'docs-gate'
@@ -207,8 +211,12 @@ async function gateCall(store, log, exec, next) {
   // checkout that lacks the code-tier files from gating on them.
   const wanted = requiredTier(call.kind, call.target)
   const tier = state.ceiling !== undefined && tierOf(wanted) > tierOf(state.ceiling) ? state.ceiling : wanted
-  const language = languageForTarget(call.target)
-  const requiredDocs = docsForTier(tier, state.docs, language)
+  // Three independent selectors: the tier ladder, the language of the file
+  // being changed, and whether this call is the commit act itself.
+  const requiredDocs = docsForTier(tier, state.docs, {
+    language: languageForTarget(call.target),
+    commits: COMMIT_KINDS.has(call.kind) && isCommitCommand(commandOf(exec.arguments)),
+  })
   const missing = requiredDocs.filter(doc => !state.satisfied.has(doc.id))
   if (missing.length === 0) return next()
   return denyMutation(exec, call.kind, missing)

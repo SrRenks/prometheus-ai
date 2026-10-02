@@ -27,6 +27,7 @@ import {
 } from './docs-gate.mjs'
 import {
   CODE_TIER_PATHS,
+  COMMIT_PATHS,
   CORE_DOC_PATHS,
   CORE_TIER_PATHS,
   CWD,
@@ -206,11 +207,11 @@ test('a source change is denied until the whole doc set is read', async () => {
     assert.equal(decision.kind, 'deny', `${exec.name} must be denied while docs are unread`)
     assert.match(decision.reason, /blocked once per session/)
     assert.match(decision.reason, /core\/docs\/complexity\.md/)
-    assert.match(decision.reason, /core\/docs\/git-workflow\.md/)
   }
 
-  // A .ts file has no language guide, so the code tier is the whole set here,
-  // and reading the docs one at a time lifts the gate only at the end.
+  // A .ts file has no language guide and this is not a commit, so the ladder is
+  // the whole requirement, and reading the docs one at a time lifts the gate
+  // only at the end.
   const requiredForTs = [...CORE_TIER_PATHS, ...CODE_TIER_PATHS]
   for (const [index, path] of requiredForTs.entries()) {
     await readDoc(h, agent, path)
@@ -218,6 +219,62 @@ test('a source change is denied until the whole doc set is read', async () => {
     const last = index === requiredForTs.length - 1
     assert.equal(decision.kind, last ? 'allow' : 'deny', `after ${index + 1} read(s)`)
   }
+})
+
+test('the commit docs are gated at the commit, not before it', async () => {
+  // A session that never commits has no use for commit and pull-request
+  // procedure, so requiring it up front spends context on the subset that
+  // reaches a commit. This is the whole reason `commits` is a trigger.
+  const h = mount()
+  const agent = fakeAgent('s-commit')
+  const [commitDoc] = COMMIT_PATHS
+  assert.notEqual(commitDoc, undefined, 'the registry must mark a commit-time doc')
+
+  const notCommitting = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.equal(notCommitting.kind, 'deny')
+  assert.doesNotMatch(notCommitting.reason, /git-workflow\.md/, 'an edit must not demand commit procedure')
+
+  const committing = await h.pre({ name: 'bash', arguments: { command: 'git commit -m "x"' }, agent })
+  assert.equal(committing.kind, 'deny')
+  assert.match(committing.reason, /git-workflow\.md/, 'the commit must demand it')
+
+  // Reading commit procedure satisfies no other requirement.
+  await readDoc(h, agent, commitDoc)
+  const stillBlocked = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.equal(stillBlocked.kind, 'deny', 'the commit doc satisfies only its own trigger')
+
+  // Reading the ladder lifts the edit, and the commit too: its other docs are
+  // the ladder ones, already read.
+  for (const path of [...CORE_TIER_PATHS, ...CODE_TIER_PATHS]) await readDoc(h, agent, path)
+  assert.deepEqual(
+    await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent }),
+    { kind: 'allow' },
+  )
+})
+
+test('only the commit-class commands trip the commit trigger', async () => {
+  const h = mount()
+  const agent = fakeAgent('s-commit-cmd')
+  const readOnly = [
+    { command: 'git status --short' },
+    { command: 'git diff HEAD' },
+    { command: 'npm test' },
+  ]
+  for (const args of readOnly) {
+    const decision = await h.pre({ name: 'bash', arguments: args, agent })
+    assert.deepEqual(decision, { kind: 'allow' }, `${args.command} is read-only`)
+  }
+  // The pull request is part of the commit path this repo mandates, so it trips
+  // the same trigger. A release does not: `git-workflow.md` governs tags, not
+  // release procedure.
+  for (const command of ['git commit -m "x"', 'git push origin main', 'gh pr create']) {
+    const decision = await h.pre({ name: 'bash', arguments: { command }, agent })
+    assert.equal(decision.kind, 'deny', `${command} must be gated`)
+    assert.match(decision.reason, /git-workflow\.md/, `${command} must demand commit procedure`)
+  }
+  const release = await h.pre({ name: 'bash', arguments: { command: 'gh release create v1' }, agent })
+  assert.equal(release.kind, 'deny', 'a release writes, so it is gated')
+  assert.doesNotMatch(release.reason, /git-workflow\.md/, 'but it is not the commit act')
 })
 
 test('the project doc joins the required set when the workspace has one', async () => {

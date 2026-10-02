@@ -218,11 +218,15 @@ so the corrective instruction arrives exactly where the model is looking.
 The set is tiered, because demanding a complexity budget before a README edit is
 friction with no return:
 
-| Tier | Required for | Docs |
+| Selector | Required for | Docs |
 |---|---|---|
-| `core` | any change, prose included | `principles.md`, `git-workflow.md`, `development-workflow.md` |
-| `code` | source changes | `complexity.md`, `maintainability.md` |
-| `language` | added on top, when the changed file's language has a guide | `languages/python.md`, `languages/go.md`, `languages/rust.md`, `languages/kotlin.md` |
+| `core` (ladder) | any change, prose included | `principles.md` |
+| `code` (ladder) | source changes | `development-workflow.md`, `complexity.md`, `maintainability.md` |
+| `language` (by extension) | the language of the changed file, when it has a guide | `languages/python.md`, `languages/go.md`, `languages/rust.md`, `languages/kotlin.md` |
+| `commits` (by act) | `git commit`, `git push`, `gh pr create`, `lazygit`, and nothing else | `git-workflow.md` |
+
+The three selectors are unioned, because none implies another: a prose session
+that commits needs `git-workflow.md` without ever needing the code tier.
 
 The tier comes from positive identification: only a prose or configuration
 extension (`.md`, `.yaml`, `.toml`, …) spares a mutation the code tier. An

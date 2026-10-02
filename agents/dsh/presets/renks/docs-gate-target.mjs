@@ -101,6 +101,12 @@ const BASH_WRITE_PATTERNS = [
   { id: 'tee', re: /\btee\b(?:\s+-\w+)*\s*("[^"]+"|'[^']+'|[^\s;|&]+)/g, targetGroup: 1 },
   { id: 'in-place', re: /\b(?:sed|perl)\b[^\n;|&]*\s-i\b/g, targetGroup: -1 },
   { id: 'git-write', re: /\bgit\s+(?:add|commit|push|merge|rebase|reset|checkout|switch|restore|stash|clean|tag|cherry-pick|revert|am|apply|init|rm|mv|filter-branch|filter-repo)\b/g, targetGroup: -1 },
+  // Remote acts that the local `git` patterns miss. `gh pr create` opens the
+  // pull request this repo's workflow mandates, so leaving it unclassified let
+  // the entire commit path run unguarded. Only the mutating subcommands match:
+  // `gh pr view` and `gh pr checks` stay read-only.
+  { id: 'gh-write', re: /\bgh\s+(?:pr\s+(?:create|merge|close|reopen|edit|comment|review)|release\s+(?:create|edit|delete|upload)|issue\s+(?:create|close|reopen|edit|comment)|repo\s+(?:create|delete|fork|edit|rename|archive))\b/g, targetGroup: -1 },
+  { id: 'lazygit', re: /(?:^|[;&|]\s*)lazygit\b/g, targetGroup: -1 },
   { id: 'pkg-write', re: /\b(?:npm|pnpm|yarn|bun|cargo|pip|pip3|poetry|uv|go|gem|composer|apt|apt-get|dnf|pacman|brew)\s+(?:i|in|install|add|remove|rm|uninstall|upgrade|update|get|tidy)\b/g, targetGroup: -1 },
   { id: 'fs-write', re: /\b(?:rm|rmdir|mv|cp|mkdir|touch|truncate|chmod|chown|ln|dd|install)\b/g, targetGroup: -1 },
   { id: 'build-write', re: /\b(?:make|cmake|ninja|gradle|mvn)\b[^\n;|&]*\b(?:build|install|clean|package)\b/g, targetGroup: -1 },

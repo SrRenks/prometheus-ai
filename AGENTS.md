@@ -13,7 +13,7 @@
 4. Never fabricate. If you don't know, say so. Don't guess and sound certain.
 5. Stop when confused. Ask. Don't barrel ahead with wrong assumptions.
 6. Touch only what's requested. No drive-by refactoring. No cleanups outside scope.
-7. The behavioural rules are tiered, and the docs-gate plugin enforces the tier before the first edit, write, or mutating command. Always read `core/principles.md`, `core/docs/git-workflow.md` and `core/docs/development-workflow.md`; add `core/docs/complexity.md` and `core/docs/maintainability.md` for source changes (paths relative to `~/.config/agent-config/`). Prose and config skip the code tier.
+7. Do not edit, write, or run a mutating command before reading the tier's behavioural rules. The dsh `docs-gate` plugin names the files, and the list is in Section 3.
 8. Formatting by audience: agent-facing files (this config, `.ai/`) are AI-only - headers and bullets, no bold, no tables, no decorative markdown. Committed project docs (`README.md`, `docs/`) are written for humans - full markdown, and the skeletons under `core/templates/` mirror that human format, tables and bold included.
 9. AI-writing hygiene applies only to prose written into files for humans (README, docs, code comments, commit messages): follow `~/.config/agent-config/core/docs/ai-writing.md`. Chat replies and `.ai/` files are exempt.
 
@@ -49,6 +49,7 @@ Full procedure and step order: `~/.config/agent-config/core/docs/development-wor
 
 ## Section 3: Reference docs - shared, read on demand
 Read on demand; never copy them into projects. Paths below are relative to `~/.config/agent-config/`.
+- Gated by rule 7: `core/principles.md`; `development-workflow.md`, `complexity.md` and `maintainability.md` for source; `git-workflow.md` at commit; `languages/*.md` for the language changed. `docs-gate` names anything missing.
 - `.ai/` structure: `core/docs/ai-directory.md`
 - Extending this config (rules/skills/docs/templates): `core/docs/agent-config-authoring.md`
 - Onboarding: `core/docs/onboarding.md`
@@ -73,14 +74,7 @@ Read on demand; never copy them into projects. Paths below are relative to `~/.c
 - Dependencies: `core/docs/dependency-policy.md`
 
 ## Section 4: Memory files (`.ai/`, local-only, never committed)
-- `.ai/agents.md` - symlink to this file (shared; do not edit)
-- `.ai/project.md` - project-specific rules (stack, build/test/lint, conventions)
-- `.ai/session.md` - current session state (update at end of each task/session)
-- `.ai/assumptions.md` - decision log
-- `.ai/scratchpad.md` - working notes
-- `.ai/docs/` - project-specific convention docs
-- `.ai/context/` - project knowledge base (domain, architecture, database, dependencies, conventions)
-- `.ai/evals/` - retained eval runs, optional (see `~/.config/agent-config/core/docs/evals.md`)
+- `.ai/agents.md` (symlink to this file; do not edit), `.ai/project.md` (project rules), `.ai/session.md` (session state), `.ai/assumptions.md` (decisions), `.ai/scratchpad.md` (notes), `.ai/docs/`, `.ai/context/`, `.ai/evals/`. Structure: `core/docs/ai-directory.md`.
 - Never commit `.ai/`; it is per-project knowledge, not project content.
 
 ## Section 5: No-Go

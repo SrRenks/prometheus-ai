@@ -39,6 +39,14 @@ export const CODE_TIER_PATHS = REQUIRED_DOCS
   .filter(doc => doc.tier === 'code')
   .map(doc => `${REPO}/${doc.repoPath}`)
 
+/**
+ * The commit-time subset: gated only when the call is the commit act. Also part
+ * of the ladder, so they appear in the tier lists above as well.
+ */
+export const COMMIT_PATHS = REQUIRED_DOCS
+  .filter(doc => doc.commits === true)
+  .map(doc => `${REPO}/${doc.repoPath}`)
+
 /** The language guides, by language name. */
 export const LANGUAGE_PATHS = Object.fromEntries(
   REQUIRED_DOCS.filter(doc => doc.tier === 'language').map(doc => [doc.language, `${REPO}/${doc.repoPath}`]),

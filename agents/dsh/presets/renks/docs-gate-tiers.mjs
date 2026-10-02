@@ -18,26 +18,30 @@
  */
 
 /**
- * The behavioural doc set, single-sourced from the shared config repo, tiered.
+ * The behavioural doc set, single-sourced from the shared config repo, tiered
+ * and triggered.
  *
  * `repoPath` is relative to the agent-config checkout root. Language guides,
  * `coupling.md`, `testing.md` and the rest stay on-demand reading; gating them
  * would tax every session for occasional value.
  *
- * `development-workflow.md` sits in the CORE tier even though it mandates
- * test-first, because most of it is planning, review and commit procedure, which
- * applies to a docs change exactly as much as to a source change. Only the two
- * docs that are purely about code shape are withheld from prose work.
+ * `tier` is a rung on the ladder, climbed from the cheapest: any change needs
+ * `core`, a source change needs `code` too.
+ *
+ * `commits` marks a doc that only matters at the moment of committing. It is not
+ * a rung, because a session that never commits has no use for it: the whole of
+ * `git-workflow.md` is commit and pull-request procedure. Requiring it up front
+ * spends context on every session for the subset that reaches a commit.
  */
 export const REQUIRED_DOCS = [
   { id: 'principles', repoPath: 'core/principles.md', tier: 'core' },
-  { id: 'git-workflow', repoPath: 'core/docs/git-workflow.md', tier: 'core' },
-  { id: 'development-workflow', repoPath: 'core/docs/development-workflow.md', tier: 'core' },
+  { id: 'git-workflow', repoPath: 'core/docs/git-workflow.md', tier: 'core', commits: true },
+  { id: 'development-workflow', repoPath: 'core/docs/development-workflow.md', tier: 'code' },
   { id: 'complexity', repoPath: 'core/docs/complexity.md', tier: 'code' },
   { id: 'maintainability', repoPath: 'core/docs/maintainability.md', tier: 'code' },
-  // Language guides carry their own tier. `language` is not a rung on the way up
-  // from core to code; it is selected by the extension of the file being
-  // changed, so it is added on top of whichever tier applies.
+  // Language guides carry their own dimension. `language` is not a rung either:
+  // it is selected by the extension of the file being changed, so it is added
+  // alongside whichever tier applies.
   { id: 'lang-python', repoPath: 'core/docs/languages/python.md', tier: 'language', language: 'python' },
   { id: 'lang-go', repoPath: 'core/docs/languages/go.md', tier: 'language', language: 'go' },
   { id: 'lang-rust', repoPath: 'core/docs/languages/rust.md', tier: 'language', language: 'rust' },
@@ -46,8 +50,8 @@ export const REQUIRED_DOCS = [
 
 /**
  * The tier ladder, cheapest first. Requiring one requires every tier below it.
- * `language` is deliberately NOT on this ladder: it is picked by extension, so
- * it is added alongside a tier rather than reached by climbing.
+ * `language` and `commits` are deliberately NOT on this ladder: both are
+ * selected by what the call does, not reached by climbing.
  */
 export const TIERS = ['core', 'code']
 
@@ -108,7 +112,7 @@ export function languageForTarget(target) {
 }
 
 /** Mutation kinds that are code-workflow acts regardless of the target path. */
-const CODE_WORKFLOW_KINDS = new Set(['git-write', 'pkg-write', 'build-write'])
+const CODE_WORKFLOW_KINDS = new Set(['git-write', 'gh-write', 'pkg-write', 'build-write'])
 
 /**
  * Exempt as "prose or configuration"?
@@ -134,27 +138,58 @@ export function isNonCodeTarget(target) {
  * @returns a tier name from {@link TIERS}.
  */
 export function requiredTier(kind, target) {
-  if (CODE_WORKFLOW_KINDS.has(kind)) return 'code'
+  // A commit, a push or a release belongs to source workflow whatever it names.
+  if (CODE_WORKFLOW_KINDS.has(kind) || kind === 'lazygit') return 'code'
   return isNonCodeTarget(target) ? 'core' : 'code'
 }
 
 /**
- * The docs a given tier requires: that tier and every tier below it.
+ * Does this command commit, push, or open a pull request?
+ *
+ * The commit-time docs are gated here rather than up front because a session may
+ * never reach a commit, and `git-workflow.md` is entirely commit and
+ * pull-request procedure. Commits run through `bash` in this setup, so the
+ * command text is the reliable place to detect the act.
+ *
+ * @param command - the raw `bash` command, when the call has one.
+ * @returns true when the command is a commit-class act.
+ */
+export function isCommitCommand(command) {
+  if (typeof command !== 'string' || command.length === 0) return false
+  return COMMIT_COMMAND_RE.test(command)
+}
+
+/** Commit-class git invocations: the acts `git-workflow.md` governs. */
+const COMMIT_COMMAND_RE = /\bgit\s+(?:commit|push|merge|rebase|cherry-pick|tag)\b|\bgh\s+pr\s+(?:create|merge)\b|\blazygit\b/
+
+/**
+ * The docs a call must satisfy, from three independent selectors.
+ *
+ *   - the tier ladder: `core`, plus `code` for a source change;
+ *   - the language dimension: the guide matching the changed file's extension;
+ *   - the commit trigger: the commit-time docs, only when the call commits.
+ *
+ * They are unioned rather than nested, because none implies another: a prose
+ * session that commits needs the commit docs without ever needing the code ones.
  *
  * @param tier - a tier name from {@link TIERS}.
  * @param available - the docs that EXIST in this workspace.
+ * @param options.language - the language selected by the target's extension.
+ * @param options.commits - whether the call is a commit-class act.
  * @returns the subset of `available` that must be read.
  */
-export function docsForTier(tier, available, language = undefined) {
+export function docsForTier(tier, available, { language = undefined, commits = false } = {}) {
   const ceiling = TIERS.indexOf(tier)
   if (ceiling < 0) return available
   return available.filter(doc => {
     // A doc with no tier is project-local: required whenever the gate is on.
     if (doc.tier === undefined) return true
-    // A language guide is required only for the language being changed.
+    // Selected by extension, never climbed.
     if (doc.tier === 'language') return language !== undefined && doc.language === language
+    // On the ladder: required, and the commit trigger adds it unconditionally.
     const own = TIERS.indexOf(doc.tier)
-    return own >= 0 && own <= ceiling
+    const onLadder = own >= 0 && own <= ceiling
+    return onLadder && (doc.commits !== true || commits)
   })
 }
 

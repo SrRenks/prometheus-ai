@@ -72,6 +72,9 @@ function configDocsByTier() {
   return grouped
 }
 
+/** Gated docs that only matter at the moment of committing. */
+const COMMIT_DOCS = GATE_DOCS.filter(doc => doc.commits === true).map(doc => doc.repoPath)
+
 /** Candidate file names, in probe order, for the project chain and user-global. */
 const PROJECT_CANDIDATES = ['AGENTS.md', 'CLAUDE.md', 'AGENTS.local.md', 'CLAUDE.local.md']
 const USER_GLOBAL_CANDIDATE = 'AGENTS.md'
@@ -141,19 +144,23 @@ function parentPath(path) {
  * @returns one sentence naming the required docs.
  */
 function docSetSentence() {
+  const here = docs => docs.map(doc => `~/.config/agent-config/${doc}`).join(', ')
+  // The commit-time docs sit in the core tier but only apply at a commit, so
+  // they are stated separately rather than listed as always-on.
+  const commitSet = new Set(COMMIT_DOCS)
   const parts = []
   for (const tier of TIERS) {
-    const docs = REQUIRED_DOCS[tier]
-    if (docs === undefined || docs.length === 0) continue
-    const names = docs.map(doc => `~/.config/agent-config/${doc}`).join(', ')
+    const docs = (REQUIRED_DOCS[tier] ?? []).filter(doc => !commitSet.has(doc))
+    if (docs.length === 0) continue
     parts.push(tier === 'core'
-      ? `always, before the first edit, write, or mutating shell command: ${names}`
-      : `and when the change touches source code: ${names}`)
+      ? `always, before the first edit, write, or mutating shell command: ${here(docs)}`
+      : `and when the change touches source code: ${here(docs)}`)
   }
+  if (COMMIT_DOCS.length > 0) parts.push(`and before committing: ${here(COMMIT_DOCS)}`)
   const guides = REQUIRED_DOCS.language
   if (guides !== undefined && guides.length > 0) {
     const names = guides.map(doc => doc.split('/').pop().replace(/\.md$/, '')).join(', ')
-    parts.push(`and for the file's language, one of: ${names} (under core/docs/languages/)`)
+    parts.push(`plus the guide for the changed file's language, one of: ${names} (under core/docs/languages/)`)
   }
   parts.push("plus this project's `.ai/project.md` when it exists")
   return `Read the behavioural rules the instruction files depend on — ${parts.join('; ')}. The docs-gate plugin blocks mutating tools until the reads a change needs have landed, so reading first is faster than being denied.`

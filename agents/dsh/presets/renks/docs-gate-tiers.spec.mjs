@@ -27,9 +27,10 @@ test('a prose change needs only the core rules', async () => {
   const blocked = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/README.md` }, agent })
   assert.equal(blocked.kind, 'deny')
   assert.match(blocked.reason, /core\/principles\.md/)
-  assert.match(blocked.reason, /core\/docs\/git-workflow\.md/)
   assert.doesNotMatch(blocked.reason, /complexity\.md/, 'prose must not demand the code rules')
   assert.doesNotMatch(blocked.reason, /maintainability\.md/, 'prose must not demand the code rules')
+  assert.doesNotMatch(blocked.reason, /git-workflow\.md/, 'prose that is not committing needs no commit procedure')
+  assert.doesNotMatch(blocked.reason, /development-workflow\.md/, 'prose must not demand the code workflow')
 
   // Reading the core tier lifts it.
   for (const doc of CORE_TIER_PATHS) await readDoc(h, agent, doc)
