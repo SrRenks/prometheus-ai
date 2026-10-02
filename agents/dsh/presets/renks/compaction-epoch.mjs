@@ -26,10 +26,16 @@
 export function createEpochPromotion(promoteEvents, options = {}) {
   const includeSubagents = options.includeSubagents === true
   const promote = new Set(promoteEvents)
-  /** sessionId -> { boundary, promoted } */
+  /** sessionId -> { boundary, promoted, seen } */
   const state = new Map()
 
-  /** Scan a session's durable log from scratch (cold start / resume). */
+  /**
+   * Scan a session's durable log from scratch (cold start / resume), recording
+   * how many events the answer was based on.
+   *
+   * @param session - the live session.
+   * @returns the entry stored for it.
+   */
   const scan = (session) => {
     let boundary = -1
     let promoted = false
@@ -42,7 +48,7 @@ export function createEpochPromotion(promoteEvents, options = {}) {
       }
       if (promote.has(event.type) && seq > boundary) promoted = true
     }
-    const entry = { boundary, promoted }
+    const entry = { boundary, promoted, seen: session.events.length }
     state.set(session.id, entry)
     return entry
   }
@@ -50,6 +56,19 @@ export function createEpochPromotion(promoteEvents, options = {}) {
   return {
     /**
      * Current phase of the agent's session.
+     *
+     * SELF-SUFFICIENT ON PURPOSE. This re-reads the durable log whenever it has
+     * grown, instead of trusting the incremental `observe()` feed. That feed
+     * depends on the host dispatching `session/event` to this plugin, and the
+     * `instruction-hint` plugin sat mute in every live session while the log
+     * itself was complete and the module rendered correctly in isolation. A
+     * promotion signal that never fires in production is worse than none, so the
+     * durable log is the source of truth and the incremental feed is only an
+     * optimisation for recording a compaction boundary promptly.
+     *
+     * The `seen` count bounds the cost: the log is re-walked only after it has
+     * actually grown.
+     *
      * @param agent - the assembly/pre-step agent, or undefined outside an agent.
      * @returns { boundary, promoted } where `boundary` is the last compaction/end
      *   seq (-1 before any compaction); `promoted` is true when a durable
@@ -62,19 +81,30 @@ export function createEpochPromotion(promoteEvents, options = {}) {
       // By default subagents keep the full catalog from their very first
       // request; includeSubagents makes them follow the normal bootstrap phase.
       if (!includeSubagents && (session.header?.delegationDepth ?? 0) > 0) return { boundary: -1, promoted: true }
-      return state.get(session.id) ?? scan(session)
+      const entry = state.get(session.id)
+      // Rescan only while still unpromoted: once a promotion signal is on
+      // record it cannot be revoked by later events, so the log walk stops.
+      if (entry === undefined || (!entry.promoted && entry.seen !== session.events.length)) return scan(session)
+      return entry
     },
-    /** Incremental feed: call on every `session/event`. */
+    /**
+     * Incremental feed: call on every `session/event`.
+     *
+     * Best-effort only. {@link status} does not depend on it, so a host that
+     * never dispatches the event still gets correct answers.
+     */
     observe(session, event) {
       const entry = state.get(session.id)
       if (entry === undefined) return
       const seq = event.seq ?? 0
       if (event.type === 'compaction/end') {
-        state.set(session.id, { boundary: seq, promoted: false })
+        state.set(session.id, { boundary: seq, promoted: false, seen: session.events.length })
         return
       }
       if (promote.has(event.type) && seq > entry.boundary && !entry.promoted) {
-        state.set(session.id, { ...entry, promoted: true })
+        // Advance `seen` too: the rescan in `status()` is keyed on it, and a
+        // promotion applied without it would be undone by the next rescan.
+        state.set(session.id, { ...entry, promoted: true, seen: session.events.length })
       }
     },
   }

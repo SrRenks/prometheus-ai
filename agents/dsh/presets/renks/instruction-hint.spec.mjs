@@ -126,6 +126,50 @@ test('the hint is emitted once per session', async () => {
   assert.deepEqual(await h.run(), [])
 })
 
+test('the hint needs no session/event dispatch to fire', async () => {
+  // Why this case exists: the plugin was mute in EVERY live session while its
+  // log was complete and it rendered correctly in isolation. The promotion
+  // signal was fed only by the host's `session/event` dispatch, which the live
+  // run never delivered. The durable log is now the source of truth, so the
+  // hint must appear even when nothing feeds the observer.
+  const handlers = new Map()
+  const ctx = {
+    logger: { warn() {}, info() {}, debug() {} },
+    on(name, fn) { handlers.set(name, [...(handlers.get(name) ?? []), fn]) },
+    get: (name) => (name === 'fs' ? fakeFs([`${DSH_HOME}/AGENTS.md`]) : undefined),
+  }
+  apply(ctx, { promoteOn: 'tool-call', includeSubagents: true })
+  assert.equal(handlers.has('session/event'), true, 'the plugin still registers the feed')
+
+  const session = { id: 'no-feed', header: { cwd: CWD }, events: [] }
+  const agent = { session, ctx: {}, parentAgent: undefined }
+  const preStep = (handlers.get('agent/pre-step') ?? [])[0]
+  const run = async () => {
+    const out = await preStep({ agent, signal: undefined }, async () => ({ messages: [] }))
+    return (out.messages ?? []).filter(m => m.source?.kind === 'instruction-hint')
+  }
+
+  assert.deepEqual(await run(), [], 'first request: nothing to promote yet')
+
+  // The tool call lands in the durable log ONLY. No observe() call, exactly as
+  // the live host behaved.
+  session.events.push({ seq: 1, type: 'tool/call', data: { name: 'read' } })
+
+  assert.equal((await run()).length, 1, 'the durable log alone must open the gate')
+})
+
+test('a compaction boundary still suppresses the hint after promotion', async () => {
+  // The self-sufficient rescan must not lose the compaction rule: a signal
+  // recorded before the boundary does not count after it.
+  const h = mount()
+  await h.land({ seq: 1, type: 'tool/call', data: { name: 'read' } })
+  await h.land({ seq: 2, type: 'compaction/end', data: {} })
+  assert.deepEqual(await h.run(), [], 'the promotion signal predates the boundary')
+
+  await h.land({ seq: 3, type: 'tool/call', data: { name: 'read' } })
+  assert.equal((await h.run()).length, 1, 'a signal after the boundary promotes again')
+})
+
 test('a transient probe failure does not consume the session\'s one hint', async () => {
   // The bug this test exists for: the session was claimed BEFORE the hint was
   // built, so an emission that could not complete silenced that session
