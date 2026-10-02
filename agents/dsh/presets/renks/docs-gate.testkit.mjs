@@ -10,21 +10,25 @@
  * (`apply`) with a fake cordis context, rather than calling the policy
  * functions directly, so a wiring mistake cannot pass the suite.
  */
-import { apply, normalizePath } from './docs-gate.mjs'
+import { apply, normalizePath, REQUIRED_DOCS } from './docs-gate.mjs'
 
 export const HOME = '/home/tester'
 export const REPO = `${HOME}/.config/agent-config`
 export const WORKSPACE = '/work/project'
 export const CWD = `${WORKSPACE}/src/deep`
 
-/** Every doc in the required set, as absolute paths. */
-export const CORE_DOC_PATHS = [
-  `${REPO}/core/principles.md`,
-  `${REPO}/core/docs/complexity.md`,
-  `${REPO}/core/docs/maintainability.md`,
-  `${REPO}/core/docs/git-workflow.md`,
-  `${REPO}/core/docs/development-workflow.md`,
-]
+/** Every doc in the required set, as absolute paths, in registry order. */
+export const CORE_DOC_PATHS = REQUIRED_DOCS.map(doc => `${REPO}/${doc.repoPath}`)
+
+/** The core-tier subset: what any change needs, prose included. */
+export const CORE_TIER_PATHS = REQUIRED_DOCS
+  .filter(doc => doc.tier === 'core')
+  .map(doc => `${REPO}/${doc.repoPath}`)
+
+/** The code-tier subset: what only a source change needs. */
+export const CODE_TIER_PATHS = REQUIRED_DOCS
+  .filter(doc => doc.tier === 'code')
+  .map(doc => `${REPO}/${doc.repoPath}`)
 
 /**
  * Build the host `fs` seam over an in-memory map of existing files.

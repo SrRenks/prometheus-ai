@@ -7,12 +7,13 @@
  * found the instruction layer was largely advisory:
  *
  *   - 33% of transcripts had read AGENTS.md / CLAUDE.md / `.ai/*.md` at all;
- *   - 8% had read ANY core behavioural doc;
+ *   - 10% had read ANY core behavioural doc;
  *   - the `instruction-hint` plugin delivered its hint in 30 sessions, and 17
  *     of those still never opened an instruction file;
  *   - replayed against this gate's classifier, 83 of the 84 sessions that
  *     mutated anything (99%) made their first mutation before reading the set,
- *     at a median of 3 tool calls in.
+ *     at a median of 3 tool calls in. Numbers move as sessions accumulate;
+ *     re-run tools/audit-instruction-reads.mjs rather than quoting these.
  *
  * WHAT THIS DOES. It observes `tools/pre-execute` and returns
  * `{ kind: 'deny' }` for a MUTATING call until the session has read each
@@ -43,12 +44,16 @@ import {
   denyMutation,
   denyUnresolved,
   describeError,
+  docsForTier,
   findWorkspaceRoot,
   isMutationTool,
   normalizePath,
   pathOf,
+  requiredTier,
   resolveRequiredDocs,
   rootSessionId,
+  tierCeiling,
+  TIERS,
 } from './docs-gate-policy.mjs'
 
 export * from './docs-gate-policy.mjs'
@@ -108,6 +113,8 @@ function createStore({ resolveFor, repoRoots, log }) {
 
       const resolved = await resolveRequiredDocs({ resolve, workspaceRoot: state.root, repoRoots, signal })
       state.docs = [...(resolved.configDocs ?? []), ...(resolved.projectDocs ?? [])]
+      // A checkout missing the code-tier files cannot gate on them.
+      state.ceiling = tierCeiling(state.docs)
       state.resolvedAt = Date.now()
     })().catch((error) => {
       // The config probe itself failed. Keep the detail so the denial can name
@@ -183,19 +190,36 @@ async function gateCall(store, log, exec, next) {
     await store.resolveOnce(agent, state, exec.signal)
   }
 
-  const kind = classifyCall(exec, state.boundary)
-  if (kind === undefined) {
+  const call = classifyCall(exec, state.boundary)
+  if (call === undefined) {
     if (exec.name === 'read') creditRead(store, agent, exec)
     return next()
   }
-  if (state.resolvedAt === undefined) return denyUnresolved(exec, kind, state.failure ?? '')
+  if (state.resolvedAt === undefined) return denyUnresolved(exec, call.kind, state.failure ?? '')
   if (state.docs.length === 0) {
     log('no required docs found in this workspace; read-before-mutate gate inactive.')
     return next()
   }
-  const missing = state.docs.filter(doc => !state.satisfied.has(doc.id))
+
+  // The tier decides how much must be read. A prose or config change needs the
+  // core rules only; source needs the code rules too. The ceiling keeps a
+  // checkout that lacks the code-tier files from gating on them.
+  const wanted = requiredTier(call.kind, call.target)
+  const tier = state.ceiling !== undefined && tierOf(wanted) > tierOf(state.ceiling) ? state.ceiling : wanted
+  const requiredDocs = docsForTier(tier, state.docs)
+  const missing = requiredDocs.filter(doc => !state.satisfied.has(doc.id))
   if (missing.length === 0) return next()
-  return denyMutation(exec, kind, missing)
+  return denyMutation(exec, call.kind, missing)
+}
+
+/**
+ * Rank one tier name for comparison.
+ *
+ * @param tier - a tier name.
+ * @returns its index, or -1 when unknown.
+ */
+function tierOf(tier) {
+  return TIERS.indexOf(tier)
 }
 
 /**

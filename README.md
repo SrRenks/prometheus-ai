@@ -195,8 +195,8 @@ An audit over the 96 recorded sessions in `~/.dsh/sessions` (`tools/audit-instru
 
 | Signal | Sessions |
 |---|---|
-| read `AGENTS.md`, `CLAUDE.md` or `.ai/*.md` at all | 33% |
-| read any core behavioural doc | 8% |
+| read `AGENTS.md`, `CLAUDE.md` or `.ai/*.md` at all | 34% |
+| read any core behavioural doc | 10% |
 | received the `instruction-hint` and still never opened an instruction file | 17 of 30 |
 
 Of the sessions where the hint did land, the median delay before the read was two
@@ -212,11 +212,23 @@ routinely zero to three calls.
 
 `docs-gate.mjs` observes `tools/pre-execute` - the waterfall `dsh-tools` runs
 before every tool body - and denies a mutating call until the session has read
-`core/principles.md`, `core/docs/complexity.md`, `core/docs/maintainability.md`,
-`core/docs/git-workflow.md`, `core/docs/development-workflow.md`, and the
-project's `.ai/project.md` when it exists. The denial reaches the model as the
-tool result, so the corrective instruction arrives exactly where the model is
-looking.
+what that call's tier requires. The denial reaches the model as the tool result,
+so the corrective instruction arrives exactly where the model is looking.
+
+The set is tiered, because demanding a complexity budget before a README edit is
+friction with no return:
+
+| Tier | Required for | Docs |
+|---|---|---|
+| `core` | any change, prose included | `principles.md`, `git-workflow.md`, `development-workflow.md` |
+| `code` | source changes | `complexity.md`, `maintainability.md` |
+
+The tier comes from positive identification: only a prose or configuration
+extension (`.md`, `.yaml`, `.toml`, …) spares a mutation the code tier. An
+unknown extension, no extension, or a `bash` command not attributable to a file
+all fall through to `code`, because over-gating is visible in the denial while
+under-gating is silent. The project's `.ai/project.md` joins whichever tier
+applies, when it exists.
 
 What it deliberately does not do, since a gate that blocks real work is worse
 than no gate:

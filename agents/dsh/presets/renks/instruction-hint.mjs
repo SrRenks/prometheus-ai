@@ -40,6 +40,7 @@
  */
 
 import { createEpochPromotion } from './compaction-epoch.mjs'
+import { REQUIRED_DOCS as GATE_DOCS, TIERS } from './docs-gate-tiers.mjs'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'instruction-hint'
@@ -52,17 +53,24 @@ const PROMOTE_EVENTS = {
 }
 
 /**
- * Behavioural docs the hint names by path. Kept in sync with `REQUIRED_DOCS`
- * in `docs-gate-policy.mjs`: this list is what the model is told to read, and
- * that list is what the gate enforces. A test asserts they agree.
+ * Behavioural docs the hint names by path, derived from the gate's own registry.
+ *
+ * Derived, not copied: a list maintained here would drift, and a hint that names
+ * files the gate does not enforce (or misses ones it does) is worse than no hint.
+ * `docs-gate-tiers.mjs` is the single source, and the two tiers are the whole
+ * point — a prose change needs the core rules, source needs all of them.
  */
-export const REQUIRED_DOCS = [
-  'core/principles.md',
-  'core/docs/complexity.md',
-  'core/docs/maintainability.md',
-  'core/docs/git-workflow.md',
-  'core/docs/development-workflow.md',
-]
+export const REQUIRED_DOCS = configDocsByTier()
+
+/** The gate's doc registry, grouped by tier, as repo-relative paths. */
+function configDocsByTier() {
+  const grouped = {}
+  for (const doc of GATE_DOCS) {
+    grouped[doc.tier] ??= []
+    grouped[doc.tier].push(doc.repoPath)
+  }
+  return grouped
+}
 
 /** Candidate file names, in probe order, for the project chain and user-global. */
 const PROJECT_CANDIDATES = ['AGENTS.md', 'CLAUDE.md', 'AGENTS.local.md', 'CLAUDE.local.md']
@@ -121,6 +129,29 @@ function parentPath(path) {
   if (idx <= 0) return path
   const parent = path.slice(0, idx)
   return parent.length === 0 ? path : parent
+}
+
+/**
+ * The sentence naming the doc set, tier by tier.
+ *
+ * Stating both tiers is what stops the hint from over-promising: the model is
+ * told that a prose change needs two files and a source change needs all five,
+ * which is exactly what the gate enforces.
+ *
+ * @returns one sentence naming the required docs.
+ */
+function docSetSentence() {
+  const parts = []
+  for (const tier of TIERS) {
+    const docs = REQUIRED_DOCS[tier]
+    if (docs === undefined || docs.length === 0) continue
+    const names = docs.map(doc => `~/.config/agent-config/${doc}`).join(', ')
+    parts.push(tier === 'core'
+      ? `always, before the first edit, write, or mutating shell command: ${names}`
+      : `and when the change touches source code: ${names}`)
+  }
+  parts.push("plus this project's `.ai/project.md` when it exists")
+  return `Read the behavioural rules the instruction files depend on — ${parts.join('; ')}. The docs-gate plugin blocks mutating tools until the reads a change needs have landed, so reading first is faster than being denied.`
 }
 
 /** Register the post-promotion instruction-hint injector. */
@@ -191,10 +222,7 @@ export function apply(ctx, config) {
       const text = [
         ...sections,
         'Do NOT assume their content. When a task touches this workspace, read the relevant instruction files first and follow them.',
-        'Before the first edit, write, or mutating shell command in this workspace, also read the behavioural rules the instruction files depend on:',
-        REQUIRED_DOCS.map(doc => `~/.config/agent-config/${doc}`).join(', '),
-        'plus this project\'s `.ai/project.md` when it exists.',
-        'The docs-gate plugin blocks mutating tools until those reads land, so reading them first is faster than being denied.',
+        docSetSentence(),
       ].join(' ')
 
       return {

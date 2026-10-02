@@ -26,7 +26,9 @@ import {
   rootSessionId,
 } from './docs-gate.mjs'
 import {
+  CODE_TIER_PATHS,
   CORE_DOC_PATHS,
+  CORE_TIER_PATHS,
   CWD,
   HOME,
   MUTATIONS,
@@ -197,7 +199,7 @@ test('a read-only session is never gated, even with docs present', async () => {
   }
 })
 
-test('every mutation is denied until the whole doc set is read', async () => {
+test('a source change is denied until the whole doc set is read', async () => {
   const h = mount()
   const agent = fakeAgent('s-gate')
 
@@ -209,13 +211,55 @@ test('every mutation is denied until the whole doc set is read', async () => {
     assert.match(decision.reason, /core\/docs\/git-workflow\.md/)
   }
 
-  // Reading the docs one at a time lifts the gate only at the end.
+  // The code tier needs all five, so reading them one at a time lifts the gate
+  // only at the end.
   for (const [index, path] of CORE_DOC_PATHS.entries()) {
     await readDoc(h, agent, path)
     const decision = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
     const last = index === CORE_DOC_PATHS.length - 1
     assert.equal(decision.kind, last ? 'allow' : 'deny', `after ${index + 1} read(s)`)
   }
+})
+
+test('a prose change needs only the core rules', async () => {
+  // The friction this tier exists to remove: editing a README should not require
+  // a complexity budget to have been read first.
+  const h = mount()
+  const agent = fakeAgent('s-prose')
+  const blocked = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/README.md` }, agent })
+  assert.equal(blocked.kind, 'deny')
+  assert.match(blocked.reason, /core\/principles\.md/)
+  assert.match(blocked.reason, /core\/docs\/git-workflow\.md/)
+  assert.doesNotMatch(blocked.reason, /complexity\.md/, 'prose must not demand the code rules')
+  assert.doesNotMatch(blocked.reason, /maintainability\.md/, 'prose must not demand the code rules')
+
+  // Reading the core tier lifts it.
+  for (const doc of CORE_TIER_PATHS) await readDoc(h, agent, doc)
+  assert.deepEqual(
+    await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/README.md` }, agent }),
+    { kind: 'allow' },
+  )
+
+  // …and the code tier is still unread, so source stays blocked.
+  const stillBlocked = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.equal(stillBlocked.kind, 'deny', 'reading the core tier must not unlock the code tier')
+  assert.match(stillBlocked.reason, /complexity\.md/)
+})
+
+test('configuration counts as prose, an unknown extension does not', async () => {
+  const h = mount()
+  const agent = fakeAgent('s-config')
+  const config = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/settings.yaml` }, agent })
+  assert.equal(config.kind, 'deny')
+  assert.doesNotMatch(config.reason, /complexity\.md/, 'YAML is not source')
+
+  const unknown = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/thing.zig` }, agent })
+  assert.equal(unknown.kind, 'deny')
+  assert.match(unknown.reason, /complexity\.md/, 'an unfamiliar language is gated, not waved through')
+
+  const noExtension = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/Makefile` }, agent })
+  assert.equal(noExtension.kind, 'deny')
+  assert.match(noExtension.reason, /complexity\.md/, 'no extension means source')
 })
 
 test('the project doc joins the required set when the workspace has one', async () => {
@@ -416,13 +460,18 @@ test('a workspace with no docs to find opens the gate', async () => {
 
 test('the enforced doc set and the hinted doc set cannot drift apart', async () => {
   // `instruction-hint` tells the model which files to read; the gate decides
-  // which reads lift the block. If those two lists diverge, the agent is either
+  // which reads lift the block. If those two diverge, the agent is either
   // blocked for a file it was never told about, or told to read a file that
-  // does not matter. Pin them together.
+  // does not matter. Grouped by tier, they must be the same registry.
   const { REQUIRED_DOCS: HINTED } = await import('./instruction-hint.mjs')
+  const byTier = {}
+  for (const doc of REQUIRED_DOCS) {
+    byTier[doc.tier] ??= []
+    byTier[doc.tier].push(doc.repoPath)
+  }
   assert.deepEqual(
     HINTED,
-    REQUIRED_DOCS.map(doc => doc.repoPath),
-    'instruction-hint.REQUIRED_DOCS must equal docs-gate REQUIRED_DOCS repoPaths, in order',
+    byTier,
+    'instruction-hint must advertise the gate registry, grouped by tier',
   )
 })

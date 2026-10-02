@@ -11,7 +11,9 @@ install time from whatever dsh version is installed on the machine.
 | `fallback.agent.cordis.yml` | Last-known-good generated recipe. Installed only when even a regenerated patch cannot merge. GENERATED. |
 | `instruction-hint.mjs` | Replaces the full `AGENTS.md` digest with one hint, and names the mandatory doc set by path. |
 | `docs-gate.mjs` | Denies mutating tool calls until the session has read the mandatory doc set. See below. |
-| `docs-gate-policy.mjs` | The decisions behind the gate, with no cordis dependency; pure and directly testable. |
+| `docs-gate-policy.mjs` | The fs seam, the doc resolution and the denials. |
+| `docs-gate-target.mjs` | Path and `bash` parsing: what counts as a target, and where the workspace boundary is. |
+| `docs-gate-tiers.mjs` | The doc registry, the tiers, and which tier a mutation needs. |
 | `docs-gate.spec.mjs` | Test suite for the gate. NOT installed into the preset directory. |
 | `docs-gate.testkit.mjs` | Fake fs seam, fake agent and waterfall driver shared by the spec. NOT installed. |
 | `skill-search.mjs` | Replaces the ~9KB skill-catalog injection with `skill_search` / `skill_load`. |
@@ -37,10 +39,23 @@ instead of writing a patch that silently degrades the install.
 ## docs-gate
 
 `docs-gate.mjs` observes `tools/pre-execute` and denies a mutating call until the
-session has read `core/principles.md`, `core/docs/complexity.md`,
-`core/docs/maintainability.md`, `core/docs/git-workflow.md`,
-`core/docs/development-workflow.md`, and the project's `.ai/project.md` when it
-exists.
+session has read what that call's TIER requires, plus the project's
+`.ai/project.md` when it exists:
+
+- `core` — every change, prose included: `core/principles.md`,
+  `core/docs/git-workflow.md`, `core/docs/development-workflow.md`.
+- `code` — source changes only: `core/docs/complexity.md`,
+  `core/docs/maintainability.md`.
+
+The tier is chosen by positive identification. A target is spared the code tier
+only when its extension says prose (`.md`, `.rst`, `.adoc`) or configuration
+(`.json`, `.yaml`, `.toml`, …); an unknown extension, no extension, or a `bash`
+command that cannot be attributed to a file all fall through to `code`. `.txt` is
+deliberately not prose, because it is the usual destination of command output.
+Over-gating shows up in the denial and can be corrected; under-gating is silent.
+
+`instruction-hint.mjs` derives its list from the same registry, so the hint
+advertises the tiered set the gate actually enforces.
 
 It was added because hints were being skipped. An audit of the 96 recorded
 sessions in `~/.dsh/sessions` (`node tools/audit-instruction-reads.mjs`) found
