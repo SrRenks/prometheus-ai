@@ -155,17 +155,44 @@ else
   echo "  [skip] no bundle builder at ${SRC}/build-preset-bundle.mjs"
 fi
 
+# ── 6) Sync the bundle into every profile ───────────────────────────────────
+# Rewriting the bundle is NOT enough, and the reason is a pnpm detail that is
+# invisible until a profile fails to pick up a change. The profiles use
+# `nodeLinker: hoisted`, so a `file:` dependency may land as a HARDLINK or as an
+# independent COPY depending on how the last install ran. A hardlink follows the
+# bundle for free; a copy needs `pnpm install` to be refreshed. Measured on
+# 2026-10-02: the `web` profile was hardlinked and followed a change with no
+# install, while `dsh-tui` held a separate copy and did not.
+#
+# So this runs install in every profile that has the bundle. It is a no-op for
+# the hardlinked ones and the only thing that works for the others.
+if command -v pnpm >/dev/null 2>&1; then
+  for profile in "${DSH_H}"/profiles/*/; do
+    [ -f "${profile}package.json" ] || continue
+    grep -q 'dsh-user-presets' "${profile}package.json" 2>/dev/null || continue
+    name="$(basename "${profile}")"
+    if (cd "${profile}" && pnpm install --silent >/dev/null 2>&1); then
+      echo "  [ok] synced bundle into profile '${name}'"
+    else
+      echo "  [warn] '${name}': pnpm install failed; run it by hand to pick up the bundle"
+    fi
+  done
+else
+  echo "  [warn] pnpm not found: run pnpm install in each profile to pick up the bundle"
+fi
+
 echo ""
-echo "Done. Two steps remain, both printed because the installer cannot do them:"
+echo "Done. Open a NEW dsh session: the modules are loaded at startup, so a"
+echo "running session keeps the old code until it restarts."
+echo "The default preset is 'renks'; /preset switches back to stock 'standard'."
 echo ""
-echo "  1. The bundle must be a dependency of each dsh profile, so add to the"
-echo "     profile's package.json:"
-echo "         \"dsh-user-presets\": \"file:${BUNDLE_OUT}\""
-echo "     and list \"dsh-user-presets\" in its dsh.profile.bundles array."
-echo "     Then run \`pnpm install\` in that profile directory."
+if grep -rq 'dsh-user-presets' "${DSH_H}"/profiles/*/package.json 2>/dev/null; then
+  echo "Every profile already declares the bundle, so nothing else is needed."
+else
+  echo "ONE-TIME SETUP still required in each profile's package.json:"
+  echo "  add \"dsh-user-presets\": \"file:${BUNDLE_OUT}\" to dependencies, and list"
+  echo "  \"dsh-user-presets\" in dsh.profile.bundles, then re-run this script."
+fi
 echo ""
-echo "  2. Open a NEW dsh session. The default preset is 'renks'."
-echo "     Use /preset to switch back to stock 'standard' at any time."
-echo ""
-echo "Re-run this script after every dsh update: it rebuilds the recipe against"
-echo "the installed version, and re-bundles. Step 1 is a one-time edit per profile."
+echo "Re-run after every dsh update: it rebuilds the recipe against the installed"
+echo "version, re-bundles, and syncs every profile."
