@@ -72,8 +72,14 @@ dsh-unrestricted-renks   de422de   0.2.1-renks.1
 prometheus-ai            this commit
 ```
 
-For step 4, each profile needs both entries. `web` and `dsh-tui` differ in their
-base bundles, so add to the existing arrays rather than replacing them:
+`install.sh` completes step 4 for you when a profile already names
+`dsh-unrestricted`, which is the marker that separates this setup's profiles from
+any other on the machine. A profile without that marker is left alone and named in
+the output, because adding a preset to somebody else's profile is not this
+repository's edit to make. Set `DSH_PROFILE_SENTINELS` to override the marker.
+
+The entries it adds are these two. `web` and `dsh-tui` differ in their base
+bundles, so it adds to the existing arrays rather than replacing them:
 
 ```jsonc
 "dsh": { "profile": { "bundles": [

@@ -8,14 +8,13 @@
  * missing either one loads nothing while reporting no error, which is the failure
  * mode this whole area keeps producing.
  *
- * The edit is deliberately narrow. It ADDS entries and never rewrites, reorders
- * or removes what is already there, because a profile's package.json also carries
- * its own base bundles and the user's `dsh-unrestricted` row, and a careless
- * "normalise" would be a change to somebody else's setup.
- *
- * For the same reason it only ever touches `dsh-user-presets`, which is the
- * bundle this repository builds. Whether `dsh-unrestricted` is present is a
- * separate repository's business and is reported, not decided, here.
+ * The edit is deliberately narrow in three ways. It only touches profiles that
+ * name one of the SENTINEL plugins below, so a profile belonging to another setup
+ * is left alone. It ADDS entries and never rewrites, reorders or removes what is
+ * already there, because a profile also carries its own base bundles. And it only
+ * ever touches `dsh-user-presets`, the bundle this repository builds: whether
+ * `dsh-unrestricted` is installed is a separate repository's business, reported
+ * by the installer, never decided here.
  *
  * A backup of every file it changes is written first, so a bad edit is one `cp`
  * away from undone.
@@ -29,6 +28,27 @@ import { join, resolve } from 'node:path'
 
 /** The bundle this repository builds, and the only one this script edits. */
 const BUNDLE = 'dsh-user-presets'
+
+/**
+ * Names that identify a profile as belonging to THIS setup.
+ *
+ * The first rule of the script was "complete a profile that already refers to the
+ * bundle, never introduce it", which is safe but useless on a machine whose
+ * profiles have not been wired yet: it skipped everything and mounted nothing.
+ * The second attempt needs a marker that separates a profile belonging to this
+ * setup from one belonging to another, and `dsh-unrestricted` is exactly that -
+ * it is a plugin from this user's own second repository, present in every profile
+ * of this setup and absent from this machine's unrelated `tui` profile, which
+ * runs `dsh-cc-tui` and `dsh-auto-mode`.
+ *
+ * So a profile is ours when it names either of these, and only then does the
+ * script add the bundle. `DSH_PROFILE_SENTINELS` overrides the list for a machine
+ * that identifies its profiles differently.
+ */
+const SENTINELS = (process.env.DSH_PROFILE_SENTINELS ?? 'dsh-unrestricted,dsh-user-presets')
+  .split(',')
+  .map(name => name.trim())
+  .filter(Boolean)
 
 /**
  * Read the CLI arguments.
@@ -54,23 +74,19 @@ function parseArgs() {
 /**
  * What this script may do to one profile, decided before it does anything.
  *
- * The rule is deliberately narrow: COMPLETE a profile that already refers to the
- * bundle, never INTRODUCE it to one that does not. A profile with no mention of
- * `dsh-user-presets` is somebody else's configuration - this machine has a `tui`
- * profile running `dsh-cc-tui` and `dsh-auto-mode` - and adding a preset to it
- * would be a change to a setup this repository does not own.
- *
  * @param manifest - the parsed `package.json`.
  * @returns 'complete' when an entry is missing, 'already declared' when nothing
- *   is needed, or 'not ours' when the profile never referred to the bundle.
+ *   is needed, or 'not ours' when the profile belongs to another setup.
  */
 function classify(manifest) {
   const profile = manifest?.dsh?.profile
   if (profile === undefined || typeof profile !== 'object') return 'not ours'
   if (!Array.isArray(profile.bundles)) return 'not ours'
+
   const dependencies = manifest.dependencies ?? {}
-  const refers = profile.bundles.includes(BUNDLE) || BUNDLE in dependencies
-  if (!refers) return 'not ours'
+  const names = [...profile.bundles, ...Object.keys(dependencies)]
+  if (!SENTINELS.some(sentinel => names.includes(sentinel))) return 'not ours'
+
   const hasBundle = profile.bundles.includes(BUNDLE)
   const hasDep = typeof dependencies[BUNDLE] === 'string'
   return hasBundle && hasDep ? 'already declared' : 'complete'
