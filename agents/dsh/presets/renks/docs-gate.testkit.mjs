@@ -70,19 +70,45 @@ export const LANGUAGE_PATHS = Object.fromEntries(
 export function fakeResolve(files) {
   const set = new Set(files.map(normalizePath))
   const isDir = (path) => [...set].some(file => file.startsWith(`${path}/`))
-  return async (path) => {
-    const normalized = normalizePath(path)
-    return {
-      stat: async () => {
-        if (set.has(normalized)) return { type: 'file' }
-        if (isDir(normalized)) return { type: 'directory' }
-        throw Object.assign(new Error(`ENOENT: ${normalized}`), {
-          code: 'BACKEND_SPECIFIC_ABSENT',
-          cause: Object.assign(new Error('enoent'), { code: 'ENOENT' }),
-        })
-      },
-    }
+  const typeOf = (path) => {
+    if (set.has(path)) return 'file'
+    return isDir(path) ? 'directory' : undefined
   }
+  // A faithful stand-in for the SERVICE, not for a target. The real surface is
+  // two calls with an opaque token between them:
+  //
+  //     stat(path, signal) <- resolve(path) -> { targetKey, displayPath }
+  //
+  // `resolve` returns a target with NO methods, and `stat` is a method of the
+  // service. Getting that backwards is what silently disabled the gate in
+  // production on 2026-10-02: `target.stat()` threw a TypeError on every probe,
+  // every probe then read as "absent", and the gate found no docs to enforce. A
+  // fake that invented `target.stat()` certified the broken contract instead of
+  // catching it, so this one models both halves and neither convenience.
+  return {
+    resolve: async (path) => ({ targetKey: normalizePath(path), displayPath: path }),
+    stat: async (targetOrPath) => {
+      const type = typeOf(pathOfTarget(targetOrPath))
+      return type === undefined ? undefined : { type }
+    },
+  }
+}
+
+/**
+ * The path a service `stat` call refers to.
+ *
+ * The real service contract is `stat(target, signal)` where `target` came from
+ * `resolve(path)` — an opaque `{ targetKey, displayPath }`. Test stubs that
+ * assumed `stat(path)` silently disagreed with the plugin and made a failing
+ * probe look like an absent file. Accepting both keeps the stub honest without
+ * forcing every case to build a target.
+ *
+ * @param targetOrPath - the value the service handed to `stat`.
+ * @returns the normalized path.
+ */
+export function pathOfTarget(targetOrPath) {
+  if (typeof targetOrPath === 'string') return normalizePath(targetOrPath)
+  return normalizePath(targetOrPath?.targetKey ?? targetOrPath?.displayPath ?? '')
 }
 
 /**
@@ -123,11 +149,9 @@ export function mount({
     },
     get(name) {
       if (name !== 'fs') return undefined
-      if (resolveImpl !== undefined) return { resolve: resolveImpl }
-      if (failResolve) return { resolve: () => { throw new Error('fs unavailable') } }
-      return {
-        resolve: (path, { cwd }) => fakeResolve(files)(path.startsWith('/') ? path : `${cwd}/${path}`),
-      }
+      if (resolveImpl !== undefined) return resolveImpl
+      if (failResolve) return { stat: () => { throw new Error('fs unavailable') } }
+      return fakeResolve(files)
     },
   }
   apply(ctx, { repoRoots: [REPO], ...config })

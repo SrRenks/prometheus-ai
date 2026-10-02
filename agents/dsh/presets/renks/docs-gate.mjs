@@ -74,12 +74,12 @@ export const name = 'docs-gate'
  * failed resolution must stay retryable, so the promise is cleared on failure
  * and the caller can tell "resolved to nothing" from "could not resolve".
  *
- * @param options.resolveFor - builds the fs resolver for one call.
+ * @param options.seamFor - builds the fs seam for one call.
  * @param options.repoRoots - config checkout roots, in probe order.
  * @param options.log - records a warning once per process.
  * @returns the gate's state accessors.
  */
-function createStore({ resolveFor, repoRoots, log }) {
+function createStore({ seamFor, repoRoots, extraDocs, log }) {
   const sessions = new Map()
 
   /** Load or create the record for one root session. */
@@ -100,11 +100,11 @@ function createStore({ resolveFor, repoRoots, log }) {
     if (state.resolvedAt !== undefined) return Promise.resolve()
     if (state.pending !== undefined) return state.pending
     const cwd = cwdOf(agent) ?? process.cwd()
-    const resolve = resolveFor(cwd, signal)
+    const seam = seamFor(cwd, signal)
     state.pending = (async () => {
       // A workspace that cannot be identified is survivable: the config docs do
       // not need it. Only a failing CONFIG probe denies.
-      const found = await findWorkspaceRoot(resolve, cwd, signal).catch((error) => {
+      const found = await findWorkspaceRoot(seam, cwd, signal).catch((error) => {
         log(`workspace root walk failed, continuing without it: ${describeError(error)}`)
         return { root: cwd, found: false }
       })
@@ -116,7 +116,7 @@ function createStore({ resolveFor, repoRoots, log }) {
       state.root = found.root === undefined ? undefined : normalizePath(found.root)
       state.boundary = found.found === true ? state.root : undefined
 
-      const resolved = await resolveRequiredDocs({ resolve, workspaceRoot: state.root, repoRoots, signal })
+      const resolved = await resolveRequiredDocs({ seam, workspaceRoot: state.root, repoRoots, extraDocs, signal })
       state.docs = [...(resolved.configDocs ?? []), ...(resolved.projectDocs ?? [])]
       // A checkout missing the code-tier files cannot gate on them.
       state.ceiling = tierCeiling(state.docs)
@@ -252,18 +252,38 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  /** The host filesystem seam, or a `node:fs` stand-in when absent. */
-  const resolveFor = (cwd, signal) => {
+  /**
+   * The host filesystem seam, or a `node:fs` stand-in when absent.
+   *
+   * The real service separates the two calls: `resolve(path)` returns an opaque
+   * target `{ targetKey, displayPath }` with NO methods, and `stat(target)` is a
+   * method on the SERVICE. Folding both into one `stat(path, signal)` here keeps
+   * that asymmetry behind a single surface, so callers cannot reach for a method
+   * that does not exist. That mistake is what silently disabled this gate before
+   * 2026-10-02: `target.stat()` threw a TypeError on every probe, every probe read
+   * as "absent", and the gate found no docs to enforce.
+   *
+   * @param cwd - the session working directory, for relative paths.
+   * @param signal - cancellation signal for the round trips.
+   * @returns `{ stat(path, signal) }` resolving to `{ type }` or undefined.
+   */
+  const seamFor = (cwd, signal) => {
     const fs = ctx.get('fs')
-    if (fs !== undefined) return path => fs.resolve(path, { cwd, signal })
-    return async (path) => {
-      const { stat } = await import('node:fs/promises')
+    if (fs !== undefined) {
       return {
-        stat: async () => {
-          const info = await stat(path)
-          return { type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other' }
+        stat: async (path) => {
+          const target = await fs.resolve(path, { cwd, signal })
+          const info = await fs.stat(target, signal)
+          return info === undefined ? undefined : { type: info.type }
         },
       }
+    }
+    return {
+      stat: async (path) => {
+        const { stat } = await import('node:fs/promises')
+        const info = await stat(path)
+        return { type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other' }
+      },
     }
   }
 
@@ -271,7 +291,7 @@ export function apply(ctx, config = {}) {
     ...(Array.isArray(config.repoRoots) ? config.repoRoots : []),
     ...defaultRepoRoots(),
   ]
-  const store = createStore({ resolveFor, repoRoots, log })
+  const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], log })
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     try {

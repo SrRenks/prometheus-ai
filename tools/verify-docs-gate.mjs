@@ -49,21 +49,27 @@ const check = (label, ok, detail = '') => {
  * @param path - absolute path to probe.
  * @returns a target whose `stat` behaves like the host's.
  */
-const realSeam = async (path) => ({
-  stat: async () => {
+const realSeam = {
+  // The service contract: `resolve(path)` yields an opaque target with no
+  // methods, and `stat(target)` is a method of the SERVICE. Omitting `resolve`
+  // here made every probe fail, which the gate correctly read as "no docs" and
+  // opened. A verifier with a wrong seam verifies nothing.
+  resolve: async (path) => ({ targetKey: path, displayPath: path }),
+  stat: async (targetOrPath) => {
+    const path = typeof targetOrPath === 'string' ? targetOrPath : targetOrPath?.targetKey
     try {
       const info = await stat(path)
       return { type: info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other' }
-    } catch (cause) {
-      throw Object.assign(new Error(`absent: ${path}`), { code: 'BACKEND_SPECIFIC_ABSENT', cause })
+    } catch {
+      return undefined
     }
   },
-})
+}
 
 /**
  * Mount the deployed plugin over a given seam.
  *
- * @param resolveImpl - the fs resolver to inject.
+ * @param resolveImpl - the fs seam to inject.
  * @param repoRoots - config roots to probe.
  * @returns a function running one `tools/pre-execute` waterfall.
  */
@@ -76,7 +82,7 @@ function mount(resolveImpl, repoRoots = [CONFIG_ROOT]) {
       listeners.set(name, [...(listeners.get(name) ?? []), handler])
       return () => {}
     },
-    get: () => ({ resolve: resolveImpl }),
+    get: () => resolveImpl,
   }, { repoRoots })
   const run = async (exec) => {
     let index = -1
@@ -110,7 +116,7 @@ console.log('\nthe workspace walk survives a directory with no VCS marker')
 
 console.log('\nthe shared docs resolve without any workspace root')
 {
-  const docs = await resolveRequiredDocs({ resolve: realSeam, workspaceRoot: undefined, repoRoots: [CONFIG_ROOT], signal: undefined })
+  const docs = await resolveRequiredDocs({ seam: realSeam, workspaceRoot: undefined, repoRoots: [CONFIG_ROOT], signal: undefined })
   const count = (docs.configDocs ?? []).length
   // The registry is the source of truth, so adding a doc must not fail this.
   check('every registry doc is found', count === REQUIRED_DOCS.length, `${count}/${REQUIRED_DOCS.length}`)

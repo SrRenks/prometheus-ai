@@ -38,6 +38,7 @@ import {
   fakeAgent,
   fakeResolve,
   mount,
+  pathOfTarget,
   readDoc,
 } from './docs-gate.testkit.mjs'
 
@@ -114,9 +115,10 @@ test('an edit outside a KNOWN workspace boundary stays open', async () => {
 
 test('findWorkspaceRoot survives a resolver that fails on every marker', async () => {
   // The 2026-10-02 outage: every probe threw, so every mutation was denied.
-  const throwing = async () => ({
+  const throwing = {
+    resolve: async (path) => ({ targetKey: path, displayPath: path }),
     stat: async () => { throw Object.assign(new Error('boom'), { code: 'EACCES' }) },
-  })
+  }
   const found = await findWorkspaceRoot(throwing, CWD, undefined)
   assert.equal(found.root, CWD, 'must fall back to cwd instead of throwing')
   assert.notEqual(found.failure, undefined, 'the probe failure is reported, not swallowed')
@@ -124,7 +126,7 @@ test('findWorkspaceRoot survives a resolver that fails on every marker', async (
 
 test('resolveRequiredDocs returns only docs that exist, plus the project doc', async () => {
   const resolved = await resolveRequiredDocs({
-    resolve: fakeResolve([`${REPO}/core/principles.md`, `${WORKSPACE}/.ai/project.md`]),
+    seam: fakeResolve([`${REPO}/core/principles.md`, `${WORKSPACE}/.ai/project.md`]),
     workspaceRoot: WORKSPACE,
     repoRoots: [REPO],
     signal: undefined,
@@ -138,7 +140,7 @@ test('the config doc set resolves even when the workspace root is unknown', asyn
   // The shared rules need no workspace, so an unidentifiable one costs only the
   // project doc.
   const resolved = await resolveRequiredDocs({
-    resolve: fakeResolve([...CORE_DOC_PATHS, `${WORKSPACE}/.ai/project.md`]),
+    seam: fakeResolve([...CORE_DOC_PATHS, `${WORKSPACE}/.ai/project.md`]),
     workspaceRoot: undefined,
     repoRoots: [REPO],
     signal: undefined,
@@ -394,7 +396,7 @@ test('a read-only call stays open even when the fs seam is broken', async () => 
       listeners.set(name, [...(listeners.get(name) ?? []), handler])
       return () => {}
     },
-    get: (name) => (name === 'fs' ? { resolve: () => { throw new Error('fs exploded') } } : undefined),
+    get: (name) => (name === 'fs' ? { stat: () => { throw new Error('fs exploded') } } : undefined),
   }, { repoRoots: [REPO] })
 
   const agent = fakeAgent('s-broken')
@@ -435,14 +437,13 @@ test('a config checkout that cannot be read fails closed', async () => {
       return () => {}
     },
     get: () => ({
-      resolve: async (path) => ({
-        stat: async () => {
-          if (normalizePath(path) === `${REPO}/core/principles.md`) {
-            throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
-          }
-          return undefined
-        },
-      }),
+      resolve: async (path) => ({ targetKey: normalizePath(path), displayPath: path }),
+      stat: async (targetOrPath) => {
+        if (pathOfTarget(targetOrPath) === `${REPO}/core/principles.md`) {
+          throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+        }
+        return undefined
+      },
     }),
   }
   apply(ctx, { repoRoots: [REPO] })

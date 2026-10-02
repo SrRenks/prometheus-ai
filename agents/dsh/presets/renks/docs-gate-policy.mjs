@@ -48,6 +48,23 @@ const MUTATION_TOOLS = new Set(['edit', 'write', 'multi_edit', 'apply_patch', 'n
 const REAL_FAILURE_CODES = new Set(['EACCES', 'EPERM', 'EROFS', 'FS_ABORTED', 'ABORT_ERR'])
 
 /**
+ * A bug in this plugin, as opposed to a filesystem failure.
+ *
+ * The gate fails closed when the FILESYSTEM is unreadable, but it must not fail
+ * closed on its own coding errors: a ReferenceError or a TypeError means the
+ * gate is broken, and denying every mutation for the life of a session is a
+ * worse outcome than letting the call through and saying so once. After the
+ * 2026-10-02 seam mistake this distinction is what turned a silent lockout into
+ * a one-line diagnosis.
+ *
+ * @param error - the thrown value.
+ * @returns true for the JavaScript error types our own code produces.
+ */
+export function isCodingError(error) {
+  return error instanceof TypeError || error instanceof ReferenceError || error instanceof SyntaxError
+}
+
+/**
  * Recursively match an error's code chain against the real-failure codes.
  *
  * @param error - the thrown value.
@@ -188,24 +205,37 @@ export function cwdOf(agent) {
  * closed; every other error is the path being absent, which is the answer this
  * probe exists to give.
  *
- * @param resolve - async absolute-path resolver (the host fs seam).
+ * @param seam - `{ stat(path, signal) }`, the host fs service surface.
  * @param path - the absolute path to probe.
  * @param signal - cancellation signal.
  * @returns the stat result, or undefined when the path is not there.
  */
-async function statOrUndefined(resolve, path, signal) {
+async function statOrUndefined(seam, path, signal) {
   try {
-    const target = await resolve(path)
-    return await target.stat(signal)
+    const info = await seam.stat(path, signal)
+    return info === undefined ? undefined : { type: info.type }
   } catch (error) {
     if (isFailureError(error)) throw error
     return undefined
   }
 }
 
+/**
+ * Does an error mean "the workspace boundary is unknown"?
+ *
+ * Only a real filesystem failure. A coding error is reported by the caller as
+ * such rather than being laundered into a fail-closed denial.
+ *
+ * @param error - the thrown value.
+ * @returns true when the caller should fail closed.
+ */
+export function isBoundaryFailure(error) {
+  return isFailureError(error) && !isCodingError(error)
+}
+
 /** Probe one absolute path for a regular file. */
-async function fileExists(resolve, path, signal) {
-  const info = await statOrUndefined(resolve, path, signal)
+async function fileExists(seam, path, signal) {
+  const info = await statOrUndefined(seam, path, signal)
   return info !== undefined && info.type === 'file'
 }
 
@@ -219,13 +249,13 @@ async function fileExists(resolve, path, signal) {
  * read a few docs, not to certify the workspace's VCS identity, so a confusing
  * filesystem must not be able to block every mutation.
  *
- * @param resolve - async absolute-path resolver (the host fs seam).
+ * @param seam - `{ stat(path, signal) }`, the host fs service surface.
  * @param cwd - the session working directory.
  * @param signal - cancellation signal.
  * @returns the root or the `cwd` fallback, whether a marker was actually found,
  *   and the first probe failure seen.
  */
-export async function findWorkspaceRoot(resolve, cwd, signal) {
+export async function findWorkspaceRoot(seam, cwd, signal) {
   let current = cwd
   let firstFailure
   for (;;) {
@@ -233,7 +263,7 @@ export async function findWorkspaceRoot(resolve, cwd, signal) {
       try {
         // Any kind of entry counts: a checkout has a `.git` DIRECTORY, while a
         // worktree or submodule uses a `.git` FILE.
-        if (await statOrUndefined(resolve, joinPath(current, marker), signal) !== undefined) {
+        if (await statOrUndefined(seam, joinPath(current, marker), signal) !== undefined) {
           return { root: current, found: true }
         }
       } catch (error) {
@@ -263,39 +293,39 @@ export async function findWorkspaceRoot(resolve, cwd, signal) {
  * Each doc carries its `tier`, so the gate can require the core rules for a
  * prose change and the full set for a source change.
  *
- * @param options.resolve - async absolute-path resolver.
+ * @param options.seam - the host fs service surface.
  * @param options.workspaceRoot - absolute workspace root, or undefined.
  * @param options.repoRoots - candidate config checkout roots, in probe order.
  * @param options.extraDocs - extra repo-relative paths, when configured.
  * @param options.signal - cancellation signal.
  * @returns `{ configDocs, projectDocs, repoRoot }`.
  */
-export async function resolveRequiredDocs({ resolve, workspaceRoot, repoRoots, extraDocs = [], signal }) {
+export async function resolveRequiredDocs({ seam, workspaceRoot, repoRoots, extraDocs = [], signal }) {
   return {
-    ...await resolveWorkspaceDocs({ resolve, workspaceRoot, extraDocs, signal }),
-    ...await resolveConfigDocs({ resolve, repoRoots, signal }),
+    ...await resolveWorkspaceDocs({ seam, workspaceRoot, extraDocs, signal }),
+    ...await resolveConfigDocs({ seam, repoRoots, signal }),
   }
 }
 
 /**
  * Resolve the workspace-local docs: `.ai/project.md` and any configured extras.
  *
- * @param options.resolve - async absolute-path resolver.
+ * @param options.seam - the host fs service surface.
  * @param options.workspaceRoot - absolute workspace root, or undefined.
  * @param options.extraDocs - extra repo-relative paths.
  * @param options.signal - cancellation signal.
  * @returns `{ projectDocs }`, empty when the root is unknown.
  */
-async function resolveWorkspaceDocs({ resolve, workspaceRoot, extraDocs, signal }) {
+async function resolveWorkspaceDocs({ seam, workspaceRoot, extraDocs, signal }) {
   if (workspaceRoot === undefined) return { projectDocs: [] }
   const projectDocs = []
   const projectDoc = normalizePath(joinPath(workspaceRoot, PROJECT_DOC_REPO_PATH))
-  if (await fileExists(resolve, projectDoc, signal)) {
+  if (await fileExists(seam, projectDoc, signal)) {
     projectDocs.push({ id: 'project', path: projectDoc, display: `${normalizePath(workspaceRoot)}/.ai/project.md` })
   }
   for (const extra of extraDocs) {
     const path = normalizePath(joinPath(workspaceRoot, extra))
-    if (await fileExists(resolve, path, signal)) projectDocs.push({ id: `extra:${extra}`, path, display: extra })
+    if (await fileExists(seam, path, signal)) projectDocs.push({ id: `extra:${extra}`, path, display: extra })
   }
   return { projectDocs }
 }
@@ -304,17 +334,17 @@ async function resolveWorkspaceDocs({ resolve, workspaceRoot, extraDocs, signal 
  * Resolve the shared behavioural docs from the first config checkout that has
  * them, preserving each doc's tier.
  *
- * @param options.resolve - async absolute-path resolver.
+ * @param options.seam - the host fs service surface.
  * @param options.repoRoots - candidate checkout roots, in probe order.
  * @param options.signal - cancellation signal.
  * @returns `{ configDocs, repoRoot }`.
  */
-async function resolveConfigDocs({ resolve, repoRoots, signal }) {
+async function resolveConfigDocs({ seam, repoRoots, signal }) {
   for (const root of repoRoots) {
     const found = []
     for (const doc of REQUIRED_DOCS) {
       const path = normalizePath(joinPath(root, doc.repoPath))
-      if (await fileExists(resolve, path, signal)) {
+      if (await fileExists(seam, path, signal)) {
         found.push({
           id: doc.id,
           path,
