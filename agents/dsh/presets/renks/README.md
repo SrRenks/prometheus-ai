@@ -13,6 +13,7 @@ install time from whatever dsh version is installed on the machine.
 | `docs-gate.mjs` | Denies mutating tool calls until the session has read the mandatory doc set. See below. |
 | `docs-gate-policy.mjs` | The decisions behind the gate, with no cordis dependency; pure and directly testable. |
 | `docs-gate.spec.mjs` | Test suite for the gate. NOT installed into the preset directory. |
+| `docs-gate.testkit.mjs` | Fake fs seam, fake agent and waterfall driver shared by the spec. NOT installed. |
 | `skill-search.mjs` | Replaces the ~9KB skill-catalog injection with `skill_search` / `skill_load`. |
 | `compaction-epoch.mjs` | Shared compaction-boundary helper for the hint and the gate. |
 | `preset.yml` | Name/description shown in `/preset`. |
@@ -53,6 +54,9 @@ Design constraints, all of them load-bearing:
   explore and always satisfy the gate.
 - Targets outside the workspace are not gated.
 - An uninitialized workspace opens the gate instead of deadlocking the session.
+- The in-or-out decision uses the workspace root ONLY when a VCS marker identified it. A fallback to
+  the session cwd keeps the doc probes working but is not a boundary, because treating it as one let
+  an edit to a real file above cwd pass unguarded.
 - An unresolvable workspace fails closed, because "I could not check" is not
   "there is nothing to check".
 - A subagent inherits its root session's evidence.

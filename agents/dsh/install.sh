@@ -117,9 +117,9 @@ mkdir -p "${DSH_H}/.agent-presets/renks"
 cp -f "${PRESET_DIR}/preset.yml" "${DSH_H}/.agent-presets/renks/preset.yml"
 cp -f "${RESULT}" "${DSH_H}/.agent-presets/renks/agent.cordis.yml"
 for f in "${PRESET_DIR}"/*.mjs; do
-  # Skip test suites: they are run from the repo, and a preset directory only
-  # needs the modules its recipe actually names.
-  case "$f" in *.spec.mjs) continue ;; esac
+  # Skip test suites and their harness: they are run from the repo, and a preset
+  # directory only needs the modules its recipe actually names.
+  case "$f" in *.spec.mjs|*.testkit.mjs) continue ;; esac
   [ -e "$f" ] && cp -f "$f" "${DSH_H}/.agent-presets/renks/"
 done
 echo "  [ok] preset 'renks' installed at ${DSH_H}/.agent-presets/renks"

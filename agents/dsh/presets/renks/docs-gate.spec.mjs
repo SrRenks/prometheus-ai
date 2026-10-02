@@ -17,7 +17,7 @@ import {
   REQUIRED_DOCS,
   apply,
   classifyBash,
-  isAbsentError,
+  isFailureError,
   defaultRepoRoots,
   findWorkspaceRoot,
   isInside,
@@ -25,132 +25,36 @@ import {
   resolveRequiredDocs,
   rootSessionId,
 } from './docs-gate.mjs'
+import {
+  CORE_DOC_PATHS,
+  CWD,
+  HOME,
+  MUTATIONS,
+  REPO,
+  WORKSPACE,
+  fakeAgent,
+  fakeResolve,
+  mount,
+  readDoc,
+} from './docs-gate.testkit.mjs'
 
-const HOME = '/home/tester'
-const REPO = `${HOME}/.config/agent-config`
-const WORKSPACE = '/work/project'
-const CWD = `${WORKSPACE}/src/deep`
-
-/** Every doc in the required set, as absolute paths. */
-const CORE_DOC_PATHS = [
-  `${REPO}/core/principles.md`,
-  `${REPO}/core/docs/complexity.md`,
-  `${REPO}/core/docs/maintainability.md`,
-  `${REPO}/core/docs/git-workflow.md`,
-  `${REPO}/core/docs/development-workflow.md`,
-]
-
-/**
- * Build the host `fs` seam over an in-memory map of existing files.
- *
- * Models real `stat` semantics closely enough for the gate: a configured path
- * exists as a file, and any ancestor of a configured path exists as a
- * directory. That is what makes `.git` report as a directory while
- * `.ai/project.md` reports as a file.
- *
- * @param files - absolute paths treated as regular files.
- */
-function fakeResolve(files) {
-  const set = new Set(files.map(normalizePath))
-  const isDir = (path) => [...set].some(file => file.startsWith(`${path}/`))
-  return async (path) => {
-    const normalized = normalizePath(path)
-    return {
-      // Mirrors `dsh-fs-local`: an absent path THROWS (an `FsError` wrapping
-      // ENOENT), which is what forces the gate to tell "missing" apart from
-      // "the probe itself failed".
-      stat: async () => {
-        if (set.has(normalized)) return { type: 'file' }
-        if (isDir(normalized)) return { type: 'directory' }
-        throw Object.assign(new Error(`ENOENT: ${normalized}`), {
-          code: 'FS_NOT_FOUND',
-          cause: Object.assign(new Error('enoent'), { code: 'ENOENT' }),
-        })
-      },
-    }
-  }
-}
-
-/**
- * Build an agent whose session reads as `sessionId` at `cwd`.
- * @param sessionId - live session id.
- * @param cwd - session working directory.
- * @param parentAgent - parent for subagent scenarios.
- */
-function fakeAgent(sessionId, cwd = CWD, parentAgent = undefined) {
-  return { session: { id: sessionId, header: { cwd } }, parentAgent }
-}
-
-/**
- * Mount the plugin and expose its captured listeners.
- *
- * `results` maps an event name to the extra argument the waterfall passes
- * alongside `exec` (the dispatch result for `tools/post-execute`, nothing for
- * `tools/pre-execute`), so each listener is invoked with a real `next`.
- *
- * @param options.files - paths the fake fs reports as present.
- * @param options.config - plugin config overrides.
- * @param options.failResolve - make the fs seam throw, simulating a read failure.
- */
-function mount({ files = [...CORE_DOC_PATHS, `${WORKSPACE}/.git/HEAD`], config = {}, failResolve = false } = {}) {
-  const listeners = new Map()
-  const ctx = {
-    logger: { warn() {} },
-    on(name, handler) {
-      const list = listeners.get(name) ?? []
-      list.push(handler)
-      listeners.set(name, list)
-      return () => {}
-    },
-    get(name) {
-      if (name !== 'fs') return undefined
-      if (failResolve) return { resolve: () => { throw new Error('fs unavailable') } }
-      return {
-        resolve: (path, { cwd }) => fakeResolve(files)(path.startsWith('/') ? path : `${cwd}/${path}`),
-      }
-    },
-  }
-  apply(ctx, { repoRoots: [REPO], ...config })
-
-  /** Run one waterfall: listeners outermost-first, then the built-in tail. */
-  const call = async (name, exec, tail) => {
-    const handlers = listeners.get(name) ?? []
-    let index = -1
-    const dispatch = async () => {
-      index += 1
-      if (index >= handlers.length) return await tail()
-      return await handlers[index](exec, dispatch)
-    }
-    return dispatch()
-  }
-  return {
-    pre: (exec) => call('tools/pre-execute', exec, async () => ({ kind: 'allow' })),
-  }
-}
-
-/** One `read` call: the gate credits it while allowing it. */
-async function readDoc(h, agent, path) {
-  await h.pre({ name: 'read', arguments: { file_path: path }, agent })
-}
-
-/** The mutation under test, in every shape the gate must guard. */
-const MUTATIONS = [
-  { name: 'edit', arguments: { file_path: `${WORKSPACE}/src/a.ts` } },
-  { name: 'write', arguments: { file_path: `${WORKSPACE}/src/b.ts` } },
-  { name: 'bash', arguments: { command: `echo hi > ${WORKSPACE}/out.txt`, description: 'write a file' } },
-  { name: 'bash', arguments: { command: 'git commit -m "x"', description: 'commit' } },
-  { name: 'bash', arguments: { command: 'npm install left-pad', description: 'install a dep' } },
-]
-
-test('isAbsentError recognises a wrapped missing-path error only', () => {
-  assert.equal(isAbsentError(Object.assign(new Error('x'), { code: 'ENOENT' })), true)
-  assert.equal(isAbsentError(Object.assign(new Error('x'), {
-    code: 'FS_NOT_FOUND',
+test('isFailureError flags only permission and cancellation failures', () => {
+  // The production outage of 2026-10-02 came from the INVERSE convention: an
+  // allow-list of "absent" codes that missed the one the host actually throws,
+  // so every marker probe rethrew and no workspace ever resolved. The default
+  // must be "absent", because that is what a probe for a missing file answers.
+  assert.equal(isFailureError(Object.assign(new Error('x'), { code: 'EACCES' })), true)
+  assert.equal(isFailureError(Object.assign(new Error('x'), {
+    code: 'FS_ABORTED',
     cause: Object.assign(new Error('y'), { code: 'ENOENT' }),
   })), true)
-  assert.equal(isAbsentError(Object.assign(new Error('x'), { code: 'EACCES' })), false)
-  assert.equal(isAbsentError(new Error('plain')), false)
-  assert.equal(isAbsentError(undefined), false)
+  assert.equal(isFailureError(Object.assign(new Error('x'), { code: 'EROFS' })), true)
+  // Everything else, including codes this build has never seen, is "absent".
+  assert.equal(isFailureError(Object.assign(new Error('x'), { code: 'ENOENT' })), false)
+  assert.equal(isFailureError(Object.assign(new Error('x'), { code: 'FS_NOT_FOUND' })), false)
+  assert.equal(isFailureError(Object.assign(new Error('x'), { code: 'A_BACKEND_WE_NEVER_MET' })), false)
+  assert.equal(isFailureError(new Error('plain')), false)
+  assert.equal(isFailureError(undefined), false)
 })
 
 test('normalizePath collapses relative segments', () => {
@@ -174,13 +78,47 @@ test('defaultRepoRoots prefers AGENT_CONFIG then the home config dir', () => {
 })
 
 test('findWorkspaceRoot walks up to the VCS marker', async () => {
-  const root = await findWorkspaceRoot(fakeResolve([`${WORKSPACE}/.git/HEAD`]), CWD, undefined)
-  assert.equal(root, WORKSPACE)
+  const found = await findWorkspaceRoot(fakeResolve([`${WORKSPACE}/.git/HEAD`]), CWD, undefined)
+  assert.equal(found.root, WORKSPACE)
+  assert.equal(found.found, true, 'a marker identifies the boundary')
+  assert.equal(found.failure, undefined)
 })
 
 test('findWorkspaceRoot falls back to cwd without a marker', async () => {
-  const root = await findWorkspaceRoot(fakeResolve([]), CWD, undefined)
-  assert.equal(root, CWD)
+  const found = await findWorkspaceRoot(fakeResolve([]), CWD, undefined)
+  assert.equal(found.root, CWD)
+  assert.equal(found.found, false, 'a fallback is NOT a boundary')
+})
+
+test('an edit above the session cwd is still gated when no marker exists', async () => {
+  // The silent-escape bug: the root fallback became a boundary, so an edit to a
+  // real file above `cwd` looked like another project's and passed unguarded.
+  // With no marker the boundary is unknown, so the gate keeps the call.
+  const h = mount({ files: [...CORE_DOC_PATHS] })
+  const agent = fakeAgent('s-nomarker')
+  const above = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.equal(above.kind, 'deny', 'a sibling of cwd must not escape the gate')
+  assert.match(above.reason, /blocked once per session/)
+})
+
+test('an edit outside a KNOWN workspace boundary stays open', async () => {
+  // With a real marker the boundary is trusted, so another checkout's file is
+  // genuinely outside this gate's authority.
+  const h = mount()
+  const agent = fakeAgent('s-boundary')
+  const outside = await h.pre({ name: 'edit', arguments: { file_path: '/elsewhere/a.ts' }, agent })
+  assert.deepEqual(outside, { kind: 'allow' })
+})
+
+test('findWorkspaceRoot survives a resolver that fails on every marker', async () => {
+  // The 2026-10-02 outage: every marker probe threw, the root never resolved,
+  // and every mutation was denied. An unreadable workspace settles on cwd.
+  const throwing = async () => ({
+    stat: async () => { throw Object.assign(new Error('boom'), { code: 'EACCES' }) },
+  })
+  const found = await findWorkspaceRoot(throwing, CWD, undefined)
+  assert.equal(found.root, CWD, 'must fall back to cwd instead of throwing')
+  assert.notEqual(found.failure, undefined, 'the probe failure is reported, not swallowed')
 })
 
 test('resolveRequiredDocs returns only docs that exist, plus the project doc', async () => {
@@ -190,8 +128,22 @@ test('resolveRequiredDocs returns only docs that exist, plus the project doc', a
     repoRoots: [REPO],
     signal: undefined,
   })
-  assert.deepEqual(resolved.docs.map(doc => doc.id), ['principles', 'project'])
+  assert.deepEqual(resolved.configDocs.map(doc => doc.id), ['principles'])
+  assert.deepEqual(resolved.projectDocs.map(doc => doc.id), ['project'])
   assert.equal(resolved.repoRoot, REPO)
+})
+
+test('the config doc set resolves even when the workspace root is unknown', async () => {
+  // The five shared rules need no workspace at all, so a workspace that cannot
+  // be identified must cost the project doc and nothing else.
+  const resolved = await resolveRequiredDocs({
+    resolve: fakeResolve([...CORE_DOC_PATHS, `${WORKSPACE}/.ai/project.md`]),
+    workspaceRoot: undefined,
+    repoRoots: [REPO],
+    signal: undefined,
+  })
+  assert.equal(resolved.configDocs.length, 5, 'all five shared docs must still resolve')
+  assert.deepEqual(resolved.projectDocs, [], 'only the workspace-local doc is skipped')
 })
 
 test('rootSessionId resolves through the parent chain to the root session', () => {
@@ -312,7 +264,10 @@ test('a subagent inherits the root session credit instead of re-reading', async 
   )
 })
 
-test('a mutation outside the workspace is not gated', async () => {
+test('a mutation outside a KNOWN workspace boundary is not gated', async () => {
+  // With a real marker the boundary is trusted, so another checkout's file is
+  // genuinely outside this gate's authority. Contrast the no-marker case above,
+  // where the boundary is unknown and the gate keeps the call.
   const h = mount()
   const agent = fakeAgent('s-outside')
   assert.deepEqual(
@@ -396,20 +351,67 @@ test('a read-only call stays open even when the fs seam is broken', async () => 
   assert.deepEqual(await dispatch(), { kind: 'allow' })
 })
 
-test('a mutation fails closed when the workspace cannot be resolved', async () => {
-  const h = mount({ files: [] })
-  const agent = fakeAgent('s-unknown')
-  // Uninitialized (resolution succeeded, nothing found) stays open…
-  assert.deepEqual(
-    await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent }),
-    { kind: 'allow' },
-  )
-
-  // …while an unresolvable workspace does not.
+test('an unreadable filesystem does not disable the gate', async () => {
+  // Before the 2026-10-02 fix this denied, because a broken workspace walk took
+  // the doc set down with it. Config docs are probed at canonical paths, so a
+  // workspace the gate cannot identify costs the project doc and nothing else.
+  // Here even the filesystem seam is gone, so nothing resolves and the gate
+  // reports "nothing to gate" rather than inventing a block.
   const broken = mount({ failResolve: true })
-  const decision = await broken.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  const agent = fakeAgent('s-broken-fs')
+  const first = await broken.pre({ name: 'read', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.deepEqual(first, { kind: 'allow' })
+  const second = await broken.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.deepEqual(second, { kind: 'allow' }, 'a blind gate must not block work')
+})
+
+test('a config checkout that cannot be read fails closed', async () => {
+  // Genuinely unknown, as opposed to "found nothing": the docs exist but the
+  // probe is DENIED. A permission failure is the one answer the gate refuses to
+  // read as "absent", so it blocks rather than silently disabling itself.
+  const listeners = new Map()
+  const ctx = {
+    logger: { warn() {} },
+    on(name, handler) {
+      listeners.set(name, [...(listeners.get(name) ?? []), handler])
+      return () => {}
+    },
+    get: () => ({
+      resolve: async (path) => ({
+        stat: async () => {
+          if (normalizePath(path) === `${REPO}/core/principles.md`) {
+            throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+          }
+          return undefined
+        },
+      }),
+    }),
+  }
+  apply(ctx, { repoRoots: [REPO] })
+  const agent = fakeAgent('s-eacces')
+  let index = -1
+  const exec = { name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent }
+  const dispatch = async () => {
+    index += 1
+    const handlers = listeners.get('tools/pre-execute') ?? []
+    if (index >= handlers.length) return { kind: 'allow' }
+    return handlers[index](exec, dispatch)
+  }
+  const decision = await dispatch()
   assert.equal(decision.kind, 'deny')
   assert.match(decision.reason, /could not be resolved/)
+  assert.match(decision.reason, /EACCES/, 'the denial must name the underlying failure')
+})
+
+test('a workspace with no docs to find opens the gate', async () => {
+  // Resolution SUCCEEDED and found nothing: a scratch directory. A configuration
+  // state, not a bypass, and it must not deadlock the session.
+  const h = mount({ files: [], config: { repoRoots: [] } })
+  const agent = fakeAgent('s-scratch')
+  const first = await h.pre({ name: 'read', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.deepEqual(first, { kind: 'allow' })
+  const second = await h.pre({ name: 'edit', arguments: { file_path: `${WORKSPACE}/a.ts` }, agent })
+  assert.deepEqual(second, { kind: 'allow' })
 })
 
 test('the enforced doc set and the hinted doc set cannot drift apart', async () => {
