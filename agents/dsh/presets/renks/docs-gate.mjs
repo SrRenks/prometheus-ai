@@ -43,6 +43,7 @@
 
 import { createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
 import { createSeamFor } from './docs-gate-seam.mjs'
+import { loadStore, recordRead, seedLedger, storeEnabled } from './docs-gate-store.mjs'
 import {
   absolutePath,
   classifyCall,
@@ -87,7 +88,7 @@ export const name = 'docs-gate'
  * @param options.log - records a warning once per process.
  * @returns the gate's state accessors.
  */
-function createStore({ seamFor, repoRoots, extraDocs, log }) {
+function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
   const sessions = new Map()
 
   /** Load or create the record for one root session. */
@@ -103,33 +104,53 @@ function createStore({ seamFor, repoRoots, extraDocs, log }) {
     return state
   }
 
+  /**
+   * Find the workspace boundary and the doc set for one session.
+   *
+   * A workspace that cannot be identified is survivable: the shared config docs
+   * do not need it, so only a failing CONFIG probe is fatal.
+   *
+   * @param state - the session record to fill in.
+   * @param seam - the fs seam for this session.
+   * @param cwd - the session working directory.
+   * @param signal - cancellation signal.
+   */
+  const resolveInto = async (state, seam, cwd, signal) => {
+    const found = await findWorkspaceRoot(seam, cwd, signal).catch((error) => {
+      log(`workspace root walk failed, continuing without it: ${describeError(error)}`)
+      return { root: cwd, found: false }
+    })
+    if (found.failure !== undefined) {
+      log(`workspace marker probe failed, continuing: ${describeError(found.failure)}`)
+    }
+    // `state.root` serves the doc probes; `state.boundary` serves the in-or-out
+    // decision and stays undefined unless a marker identified it.
+    state.root = found.root === undefined ? undefined : normalizePath(found.root)
+    state.boundary = found.found === true ? state.root : undefined
+
+    const resolved = await resolveRequiredDocs({ seam, workspaceRoot: state.root, repoRoots, extraDocs, signal })
+    state.docs = [...(resolved.configDocs ?? []), ...(resolved.projectDocs ?? [])]
+    // A checkout missing the code-tier files cannot gate on them.
+    state.ceiling = tierCeiling(state.docs)
+    // Optional, off unless `creditStore` names a path. Seeded only for docs whose
+    // content still hashes to what a previous session read, and logged, because a
+    // session that mutates without the rules in context while the gate reports
+    // them satisfied is the failure this plugin exists to prevent. See
+    // docs-gate-store.mjs for why it is a switch and not a default.
+    if (storeEnabled(creditStore)) {
+      const seeded = await seedLedger(creditStore, seam, state.docs, state.ledger)
+      if (seeded.length > 0) log(`credit store: reused ${seeded.length} read(s): ${seeded.join(', ')}`)
+    }
+    state.resolvedAt = Date.now()
+  }
+
   /** Resolve workspace root and doc set once per session. */
   const resolveOnce = (agent, state, signal) => {
     if (state.resolvedAt !== undefined) return Promise.resolve()
     if (state.pending !== undefined) return state.pending
     const cwd = cwdOf(agent) ?? process.cwd()
     const seam = seamFor(cwd, signal)
-    state.pending = (async () => {
-      // A workspace that cannot be identified is survivable: the config docs do
-      // not need it. Only a failing CONFIG probe denies.
-      const found = await findWorkspaceRoot(seam, cwd, signal).catch((error) => {
-        log(`workspace root walk failed, continuing without it: ${describeError(error)}`)
-        return { root: cwd, found: false }
-      })
-      if (found.failure !== undefined) {
-        log(`workspace marker probe failed, continuing: ${describeError(found.failure)}`)
-      }
-      // `state.root` serves the doc probes; `state.boundary` serves the
-      // in-or-out decision and stays undefined unless a marker identified it.
-      state.root = found.root === undefined ? undefined : normalizePath(found.root)
-      state.boundary = found.found === true ? state.root : undefined
-
-      const resolved = await resolveRequiredDocs({ seam, workspaceRoot: state.root, repoRoots, extraDocs, signal })
-      state.docs = [...(resolved.configDocs ?? []), ...(resolved.projectDocs ?? [])]
-      // A checkout missing the code-tier files cannot gate on them.
-      state.ceiling = tierCeiling(state.docs)
-      state.resolvedAt = Date.now()
-    })().catch((error) => {
+    state.pending = resolveInto(state, seam, cwd, signal).catch((error) => {
       // The config probe itself failed. Keep the detail so the denial can name
       // it, and clear the promise so a later call retries.
       log(`config doc resolution failed: ${describeError(error)}`)
@@ -141,7 +162,10 @@ function createStore({ seamFor, repoRoots, extraDocs, log }) {
     return state.pending
   }
 
-  return { stateFor, resolveOnce, seamFor }
+  /** The configured credit store path, or undefined when the feature is off. */
+  const creditStorePath = () => (storeEnabled(creditStore) ? creditStore : undefined)
+
+  return { stateFor, resolveOnce, seamFor, creditStorePath }
 }
 
 /**
@@ -176,7 +200,11 @@ async function creditRead(store, agent, exec, seam) {
   } catch {
     return
   }
-  state.ledger.record(exec, content, state.docs)
+  const credited = state.ledger.record(exec, content, state.docs)
+  // Written only on a real read, through the same fingerprint the ledger stores,
+  // so the two cannot disagree about what was read.
+  const storePath = store.creditStorePath()
+  if (credited) recordRead(storePath, loadStore(storePath), doc, content)
 }
 
 /**
@@ -291,6 +319,12 @@ function tierOf(tier) {
 export function apply(ctx, config = {}) {
   if (config.disabled === true) return
 
+  /**
+   * Where the optional credit store lives. Undefined means off, which is the
+   * default; see docs-gate-store.mjs.
+   */
+  const creditStorePath = config.creditStore
+
   let warned = false
   const log = (message) => {
     if (warned) return
@@ -307,7 +341,7 @@ export function apply(ctx, config = {}) {
     ...(Array.isArray(config.repoRoots) ? config.repoRoots : []),
     ...defaultRepoRoots(),
   ]
-  const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], log })
+  const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], creditStore: creditStorePath, log })
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     try {

@@ -50,6 +50,37 @@ records a CONTENT fingerprint, so:
 - a document edited after the read LOSES its credit, because the agent then holds
   text that is no longer on disk.
 
+### Optional: reusing a credit across a restart
+
+The credit is per process, keyed by root session, so a resumed session re-reads.
+`docs-gate-store.mjs` offers a switch for that, and it is OFF by default:
+
+```yaml
+- id: docs-gate
+  name: ./docs-gate.mjs
+  config:
+    creditStore: ~/.dsh/gate-credit.json   # omit to keep it off
+```
+
+WHY IT IS NOT THE DEFAULT. A credit means "this session has seen this content".
+Reusing a record from an earlier session produces a session that mutates WITHOUT
+the rules in its context while the gate reports them satisfied, which is the
+failure this plugin exists to prevent: 0 percent file-reading compliance measured
+in arXiv:2605.01771, and 99 percent first-mutation-before-reading in this repo's
+own sessions. Du's survey (arXiv:2603.07670) argues the other way and is worth
+weighing rather than dismissing: summarisation drift loses important detail across
+compaction, and a store of raw records is its recommended supplement. Both
+readings are true, so this is a switch with the trade stated rather than a choice
+made for the reader.
+
+WHAT KEEPS IT HONEST. The store holds a CONTENT fingerprint per document, never
+the content itself, so it cannot become a second copy of the rules that drifts
+from the file. A credit comes back only when the document still hashes to what was
+read, so a rewritten rule never reuses an old credit. A store that cannot be read,
+or a document that cannot be re-read, seeds nothing. And every reuse is logged:
+`credit store: reused N read(s)` names the documents, so a session that acted
+without reading them leaves a trace.
+
 The credit is per process, keyed by root session, so a resumed session re-reads.
 Persisting it is blocked rather than merely undone: an out-of-repo session event
 needs the envelope's `ignorable` marker, which the public `session.append()` does

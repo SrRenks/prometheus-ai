@@ -122,6 +122,21 @@ export function createLedger() {
       return true
     },
     /**
+     * Record a document by a fingerprint already computed.
+     *
+     * Used by the optional store, which holds fingerprints rather than content and
+     * must therefore enter the ledger through the same definition of a credit the
+     * read path uses. Two ways to write a credit would be two things to keep in
+     * agreement.
+     *
+     * @param doc - the tracked document.
+     * @param hash - its content fingerprint.
+     */
+    adopt(doc, hash) {
+      if (typeof hash !== 'string' || hash.length === 0) return
+      held.set(doc.id, hash)
+    },
+    /**
      * Does a document's CURRENT content match what was read here?
      *
      * @param doc - the tracked document.
