@@ -88,16 +88,16 @@ not expose, and the synchronous log readers that could replay the evidence are
 prohibited for new production code. `docs-gate-credit.mjs` records that reasoning
 where a future reader will find it.
 
-- `core` — every change, prose included: `core/principles.md`.
-- `code` — source changes only: `core/docs/development-workflow.md`,
+- `core`: every change, prose included. `core/principles.md`.
+- `code`: source changes only. `core/docs/development-workflow.md`,
   `core/docs/complexity.md`, `core/docs/maintainability.md`.
-- `language` — added on top when the changed file's language has a guide:
+- `language`, added on top when the changed file's language has a guide:
   `core/docs/languages/{python,go,rust,kotlin}.md`. The guides are 800 to 1000
   bytes each (Kotlin 3.8 KB) and they state HOW the complexity budgets are
   enforced - `C901` max 10 for Python, `gocyclo` for Go, `clippy::too_many_lines`
   at 60 for Rust. Requiring the budget without the tool configuration asks the
   agent to honour a limit it cannot check.
-- `commits` — a TRIGGER, not a rung: `core/docs/git-workflow.md` and
+- `commits` is a TRIGGER, not a rung. `core/docs/git-workflow.md` and
   `core/docs/ai-writing.md` are required when the call is `git commit`,
   `git push`, `gh pr create` or `lazygit`, and at no other time. It adds those two
   and does NOT climb the ladder, because the change a commit lands was gated when

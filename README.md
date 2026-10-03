@@ -12,6 +12,20 @@ the one exception, because its installer copies files into `~/.dsh/`.
 The config is read-only for agents. Anything project-specific belongs in that
 project's `.ai/` directory; shared rules stay project-agnostic.
 
+## What is in this file
+
+Getting it running: [Supported tools](#supported-tools) · [Requirements](#requirements) · [Install](#install)
+
+How it works: [The `.ai/` directory](#the-ai-directory) · [Repository layout](#repository-layout) · [How one config reaches every tool](#how-one-config-reaches-every-tool) · [dsh and the `renks` preset](#dsh-and-the-renks-preset) · [What agents are told](#what-agents-are-told) · [The workflow](#the-workflow)
+
+What holds the rules in place: [Guardrails](#guardrails) · [Reference docs](#reference-docs)
+
+Checking it yourself: [Validation](#validation) · [Status](#status)
+
+Working on it: [Git identity](#git-identity) · [Extending the config](#extending-the-config)
+
+The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [License](#license) · [Size, and the one budget this file breaks](#size-and-the-one-budget-this-file-breaks)
+
 ## Supported tools
 
 | Tool | Source in this repo | Bridge installed by `setup.sh` |
@@ -267,8 +281,8 @@ That local number matches a result published far more widely. Shin, [The
 Compliance Gap](https://arxiv.org/abs/2605.01771), ran 2,031 sessions across six
 frontier models and found **0% compliance on file reading under default framing**:
 Claude Sonnet 4 agreed verbally ten times out of ten and bypassed in all ten. The
-important part is the second theorem. The gap is undetectable from text alone — by
-any human or LLM observer — so an agent SAYING it read a file is not evidence, and
+important part is the second theorem. The gap is undetectable from text alone, by
+any human or LLM observer, so an agent SAYING it read a file is not evidence, and
 no amount of reading transcripts can recover the truth. What the paper prescribes
 is a tool-call log, which is what this gate is, and its controlled result points
 the same way: removing the affordance to skip raised compliance from 0% to 75%
@@ -420,9 +434,9 @@ belongs there too.
 
 The gate is the strongest of the three, and deliberately the narrowest: it denies
 a mutating call until the behavioural docs that call needs have been read. That
-failure is the one this repo measured as systematic — of the 84 sessions that
-mutated anything, **83 (99%) made their first mutation before reading the rules**
-— and no amount of prose moved it, so a control was the only lever left. The
+failure is the one this repo measured as systematic. Of the 84 sessions that
+mutated anything, **83 (99%) made their first mutation before reading the rules**.
+No amount of prose moved that, so a control was the only lever left. The
 quantitative case for a surface like it comes from AgentGuard
 ([arXiv:2609.16287](https://arxiv.org/abs/2609.16287), `sources.md`): a frontier
 harness left unmodified still modified unrelated files, rewrote tests, or ignored
@@ -574,7 +588,7 @@ The checklist an agent runs before declaring a task done is a separate document:
 Wired for Claude Code, Cursor, Codex, Gemini CLI, and dsh; on this machine only
 dsh is installed, and the other four carry links that no binary reads until one
 is. `setup.sh` reports which harnesses it found and which tools the language
-guides expect, because nothing fails when a harness is absent — the links simply
+guides expect, because nothing fails when a harness is absent. The links simply
 sit there, and a rule that reaches nothing looks the same as a rule that works.
 
 Where the rules are enforced rather than read differs by harness, and the table
@@ -589,21 +603,6 @@ Changes to the default preset or the shared rules face the retained eval set in
 substantive work. The gate is that success rate does not drop and cost per solved
 task does not rise materially. Public benchmark scores are not treated as
 evidence.
-
-## Size, and the one budget this file breaks
-
-`core/docs/complexity.md` budgets a file at 500 lines and requires the reason be
-documented whenever one exceeds it. This file is about 680, and it is the only
-artefact in the repo that does. It is the front door: everything a reader needs to
-decide whether to install this, understand what it does, and check the claims is
-here on purpose, because the alternative is a reader following four links before
-they can judge anything. The budget exists to stop CODE becoming unreadable, and
-the check that matters for docs is different: whether a doc states claims that can
-be verified, which is why every measurement in this file names the command that
-reproduces it rather than a number to be trusted.
-
-`core/docs/project-docs.md` exceeds the same budget and declares its own reason at
-the top of the file.
 
 ## License
 
@@ -660,20 +659,20 @@ and Constantine, Feathers, Nygard, Knuth, and Chroma.
 Four additions bear directly on the gate, and the weight of each is recorded where
 it is cited rather than left to the reader to guess:
 
-- Shin, **[The Compliance Gap](https://arxiv.org/abs/2605.01771)** (arXiv:2605.01771) — 2,031
+- Shin, [The Compliance Gap](https://arxiv.org/abs/2605.01771) (arXiv:2605.01771). 2,031
   sessions, six frontier models, **0% compliance on file reading**, and a proof
   that the gap cannot be detected from text. This is the strongest published
   support the gate has, and it also bounds the claim: an agent saying it read a
   file is never evidence.
-- Dai and Wang, **[AgentGuard](https://arxiv.org/abs/2609.16287)** (arXiv:2609.16287) — what
+- Dai and Wang, [AgentGuard](https://arxiv.org/abs/2609.16287) (arXiv:2609.16287). What
   execution guardrails buy on real coding-agent traces: an abnormal execution rate
   cut from 69.0% to 26.7%, completion up from 21.7% to 35.0%.
-- **[String](https://arxiv.org/abs/2608.28027)** (arXiv:2608.28027) — causal staging: a tier
+- [String](https://arxiv.org/abs/2608.28027) (arXiv:2608.28027). Causal staging: a tier
   of detail disclosed one turn too early costs up to 23 accuracy points, and
   proper staging drops wrong-action selection from 28% to 2%. This is the result
   behind not loading rules a call cannot use.
-- Du, **[Memory for Autonomous LLM Agents](https://arxiv.org/abs/2603.07670)** (arXiv:2603.07670)
-  — summarisation drift and attentional dilution, the reason a credit must be
+- Du, [Memory for Autonomous LLM Agents](https://arxiv.org/abs/2603.07670) (arXiv:2603.07670).
+  Summarisation drift and attentional dilution, the reason a credit must be
   bound to raw content and why a bigger window is not the answer.
 
 Rodrigues Pereira's **An LLM Agent Cannot Be a Gate** and the Du survey are not
@@ -688,3 +687,18 @@ Named after the Prometheus Circuit in Chrono Trigger, the machine that directs t
 others and answers to the people who keep it.
 
 Thank you all. Long live knowledge and open source. =)
+
+## Size, and the one budget this file breaks
+
+`core/docs/complexity.md` budgets a file at 500 lines and requires the reason be
+documented whenever one exceeds it. This file is about 680, and it is the only
+artefact in the repo that does. It is the front door: everything a reader needs to
+decide whether to install this, understand what it does, and check the claims is
+here on purpose, because the alternative is a reader following four links before
+they can judge anything. The budget exists to stop CODE becoming unreadable, and
+the check that matters for docs is different: whether a doc states claims that can
+be verified, which is why every measurement in this file names the command that
+reproduces it rather than a number to be trusted.
+
+`core/docs/project-docs.md` exceeds the same budget and declares its own reason at
+the top of the file.
