@@ -210,7 +210,17 @@ test('a source change is denied until the whole doc set is read', async () => {
     const decision = await h.pre({ ...exec, agent })
     assert.equal(decision.kind, 'deny', `${exec.name} must be denied while docs are unread`)
     assert.match(decision.reason, /blocked once per session/)
-    assert.match(decision.reason, /core\/docs\/complexity\.md/)
+    // The commit is the one mutation that does NOT climb to the code tier: the
+    // change it lands was gated when this session made it, and loading
+    // complexity and maintainability to commit teaches nothing. Asserted both
+    // ways so the separation cannot quietly collapse back.
+    const isCommit = exec.name === 'bash' && String(exec.arguments.command).startsWith('git commit')
+    if (isCommit) {
+      assert.doesNotMatch(decision.reason, /core\/docs\/complexity\.md/, 'a commit must not demand the code tier')
+      assert.match(decision.reason, /core\/docs\/git-workflow\.md/, 'but it must demand commit procedure')
+    } else {
+      assert.match(decision.reason, /core\/docs\/complexity\.md/)
+    }
   }
 
   // A .ts file has no language guide and this is not a commit, so the ladder is

@@ -49,7 +49,7 @@ Full procedure and step order: `~/.config/agent-config/core/docs/development-wor
 
 ## Section 3: Reference docs - shared, read on demand
 Read on demand; never copy them into projects. Paths below are relative to `~/.config/agent-config/`.
-- Gated by rule 7: `core/principles.md`; `development-workflow.md`, `complexity.md` and `maintainability.md` for source; `git-workflow.md` and `ai-writing.md` at commit; `languages/*.md` for the language changed. `docs-gate` names anything missing.
+- Gated by rule 7: `core/principles.md`; `development-workflow.md`, `complexity.md` and `maintainability.md` for source; `git-workflow.md` and `ai-writing.md` at commit, which adds those two and does not add the source tier; the one `languages/*.md` matching the file changed. `docs-gate` names anything missing.
 - `.ai/` structure: `core/docs/ai-directory.md`
 - Extending this config (rules/skills/docs/templates): `core/docs/agent-config-authoring.md`
 - Onboarding: `core/docs/onboarding.md`

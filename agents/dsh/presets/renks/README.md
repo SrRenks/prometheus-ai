@@ -68,7 +68,14 @@ where a future reader will find it.
   agent to honour a limit it cannot check.
 - `commits` — a TRIGGER, not a rung: `core/docs/git-workflow.md` and
   `core/docs/ai-writing.md` are required when the call is `git commit`,
-  `git push`, `gh pr create` or `lazygit`, and at no other time. Neither doc is
+  `git push`, `gh pr create` or `lazygit`, and at no other time. It adds those two
+  and does NOT climb the ladder, because the change a commit lands was gated when
+  this session made it. Measured: a commit-only session paid 5013 tokens for six
+  docs, three of which say nothing about committing; it now pays 2844 for three.
+  arXiv:2608.28027 measures the other side, that disclosing one tier too early
+  costs up to 23 accuracy points, so loading rules a call cannot use is not free.
+  The common code-then-commit session is unchanged, since the source tier was
+  read at the write. Neither doc is
   used by a session that never commits: one is commit and pull-request procedure,
   the other governs prose a human will read, and the review phase places its check
   immediately before the commit. This follows the within-session compliance decay

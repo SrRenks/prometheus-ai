@@ -226,16 +226,18 @@ async function gateCall(store, log, exec, next) {
     return next()
   }
 
-  // The tier decides how much must be read. A prose or config change needs the
-  // core rules only; source needs the code rules too. The ceiling keeps a
-  // checkout that lacks the code-tier files from gating on them.
-  const wanted = requiredTier(call.kind, call.target)
+  // Three independent selectors: the tier ladder, the language of the file being
+  // changed, and whether this call is the commit act itself. The commit selector
+  // is computed first because it also tells the ladder not to climb: a commit
+  // adds the commit-time docs and nothing else.
+  const isCommit = COMMIT_KINDS.has(call.kind) && isCommitCommand(commandOf(exec.arguments))
+  const wanted = requiredTier(call.kind, call.target, { commits: isCommit })
+  // The ceiling keeps a checkout that lacks the code-tier files from gating on
+  // them.
   const tier = state.ceiling !== undefined && tierOf(wanted) > tierOf(state.ceiling) ? state.ceiling : wanted
-  // Three independent selectors: the tier ladder, the language of the file
-  // being changed, and whether this call is the commit act itself.
   const requiredDocs = docsForTier(tier, state.docs, {
     language: languageForTarget(call.target),
-    commits: COMMIT_KINDS.has(call.kind) && isCommitCommand(commandOf(exec.arguments)),
+    commits: isCommit,
   })
   // A credit counts only while the document still holds the content that was
   // read. A doc edited mid-session invalidates its credit on purpose: the agent

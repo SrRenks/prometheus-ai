@@ -145,8 +145,20 @@ export function isNonCodeTarget(target) {
  * @param target - the target path, when the call carries one.
  * @returns a tier name from {@link TIERS}.
  */
-export function requiredTier(kind, target) {
-  // A commit, a push or a release belongs to source workflow whatever it names.
+export function requiredTier(kind, target, { commits = false } = {}) {
+  // The commit ACT is a trigger, not a rung. It demands the commit-time docs
+  // (git-workflow, ai-writing) on top of whatever the session already owes, and
+  // it does not add the code tier on its own. Measured cost of not separating
+  // them: a commit-only session paid 2169 tokens for complexity, maintainability
+  // and the development workflow, none of which says anything about committing.
+  // arXiv:2608.28027 measures the other side of this - disclosing one tier too
+  // early costs up to 23 accuracy points - so loading rules a call cannot use is
+  // not free.
+  //
+  // The change the commit lands was gated when it was made, if this session made
+  // it: `write`, `edit` and `bash` all climb the code tier already.
+  if (commits && (CODE_WORKFLOW_KINDS.has(kind) || kind === 'lazygit')) return 'core'
+  // A push or a release belongs to source workflow whatever it names.
   if (CODE_WORKFLOW_KINDS.has(kind) || kind === 'lazygit') return 'code'
   return isNonCodeTarget(target) ? 'core' : 'code'
 }

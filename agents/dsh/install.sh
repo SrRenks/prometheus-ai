@@ -160,11 +160,21 @@ ln -sfn "${REPO}/skills" "${DSH_H}/skills"
 echo "  [ok] symlinks: ${DSH_H}/AGENTS.md -> repo AGENTS.md ; ${DSH_H}/skills -> repo skills"
 
 # ── 4) Make renks the default preset for new sessions ────────────────────────
-if grep -q '^agent-presets:' "${DSH_H}/settings.yaml" 2>/dev/null; then
+# Append only, and back up first. This script has always appended, but the file
+# it appends to does not survive verbatim on its own: it was 82 bytes on
+# 2026-09-15 and contained one section, and on 2026-10-03 it contained only the
+# section this step adds. Whatever rewrote it kept nothing else, so the risk this
+# guards is not a bad append here - it is the NEXT rewrite discarding the preset
+# choice and this step then re-appending to a file that lost its other settings.
+SETTINGS="${DSH_H}/settings.yaml"
+if grep -q '^agent-presets:' "${SETTINGS}" 2>/dev/null; then
   echo "  [skip] settings.yaml already has an agent-presets section"
 else
-  printf '\nagent-presets:\n  default: renks\n' >> "${DSH_H}/settings.yaml"
-  echo "  [ok] settings.yaml: agent-presets.default = renks"
+  if [ -f "${SETTINGS}" ] && [ -s "${SETTINGS}" ]; then
+    cp "${SETTINGS}" "${SETTINGS}.bak-$(date +%Y%m%d%H%M%S)"
+  fi
+  printf '\nagent-presets:\n  default: renks\n' >> "${SETTINGS}"
+  echo "  [ok] settings.yaml: agent-presets.default = renks (previous content backed up if any)"
 fi
 
 # ── 5) Bundle the preset into the 0.2.0 format ──────────────────────────────
