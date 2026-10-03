@@ -9,18 +9,37 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createLedger, fingerprint } from './docs-gate-credit.mjs'
 import { loadStore, recordRead, seedLedger, storeEnabled, storeExists, storeHolds } from './docs-gate-store.mjs'
 
+/**
+ * Temp directories are removed at exit, so a test run does not leave one behind
+ * per case.
+ */
+const scratchDirs = []
+process.on('exit', () => {
+  for (const dir of scratchDirs) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // Best effort.
+    }
+  }
+})
+
 const DOC = { id: 'principles', path: '/cfg/core/principles.md', tier: 'core' }
 const CONTENT = 'the rules\n'
 
 /** A temp store path that does not exist yet. */
-const tempPath = () => join(mkdtempSync(join(tmpdir(), 'gate-store-')), 'credit.json')
+const tempPath = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gate-store-'))
+  scratchDirs.push(dir)
+  return join(dir, 'credit.json')
+}
 
 /** A seam serving one document. */
 const seamFor = (content) => ({ readText: async () => content })

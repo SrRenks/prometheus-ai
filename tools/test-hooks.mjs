@@ -20,13 +20,36 @@
  * Exit code is non-zero when a case fails.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const HOOKS = join(ROOT, 'agents/claude-code/hooks')
+
+/**
+ * Temp directories are removed at exit. A first version left one behind per case,
+ * and 81 of them accumulated in one afternoon, which is a leak the suite itself
+ * should not have.
+ */
+const scratchDirs = []
+process.on('exit', () => {
+  for (const dir of scratchDirs) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // Best effort: a leftover temp directory is not worth failing a run over.
+    }
+  }
+})
+
+/** A temp directory that is cleaned up when the run ends. */
+const scratch = (prefix) => {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  scratchDirs.push(dir)
+  return dir
+}
 
 let failures = 0
 let checks = 0
@@ -124,7 +147,7 @@ for (const tool of ['Write', 'Edit', 'Read', 'Grep']) {
 
 console.log('\nlint-check reports on writes and never blocks')
 {
-  const dir = mkdtempSync(join(tmpdir(), 'hook-lint-'))
+  const dir = scratch('hook-lint-')
   const goFile = join(dir, 'bad.go')
   writeFileSync(goFile, 'package main\n\nfunc main() {\n\tunused := 1\n}\n')
 
@@ -153,7 +176,7 @@ console.log('\nlint-check reports on writes and never blocks')
 
 console.log('\nsession-init creates the .ai/ memory files')
 {
-  const dir = mkdtempSync(join(tmpdir(), 'hook-session-'))
+  const dir = scratch('hook-session-')
   const script = readFileSync(join(HOOKS, 'session-init'), 'utf8')
   // The hook reads the current directory, so it is run with cwd set rather than
   // by editing it.
@@ -173,7 +196,7 @@ console.log('\nsession-init reports failure instead of printing it')
   // The defect this pins: with no `.ai/` yet, the first version wrote into a
   // directory it never created, put five errors on stderr, and exited 0. A hook
   // that fails silently is the shape this repository has produced four times.
-  const dir = mkdtempSync(join(tmpdir(), 'hook-session-bad-'))
+  const dir = scratch('hook-session-bad-')
   const { code, output } = run('session-init', {}, { cwd: dir })
   check('succeeds from nothing, because it now creates the directory', code === 0, `exit ${code}`)
   check('and says nothing on the way', output.trim() === '', output.trim().slice(0, 60))
@@ -182,7 +205,7 @@ console.log('\nsession-init reports failure instead of printing it')
 
 console.log('\nlint-check names the linter it could not run')
 {
-  const dir = mkdtempSync(join(tmpdir(), 'hook-absent-'))
+  const dir = scratch('hook-absent-')
   const pyFile = join(dir, 'a.py')
   writeFileSync(pyFile, 'x = 1\n')
   let ruff = true

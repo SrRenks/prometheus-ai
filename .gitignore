@@ -6,3 +6,7 @@ evals/
 
 # Personal git identity - lives in ~/.config/git/identity, never in this repo
 gitconfig
+
+# Machine-local credit store, if one is pointed inside the repo. It belongs
+# outside, but a file that records what this machine has read is never config.
+gate-credit.json
