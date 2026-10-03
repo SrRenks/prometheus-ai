@@ -91,6 +91,47 @@ function readCalls(text) {
   return calls
 }
 
+/**
+ * Did a gate denial get honoured: was each named document actually read?
+ *
+ * This is the process-fidelity measurement Shin's Compliance Gap prescribes. The
+ * paper's remedy to a 0 percent file-reading rate is a tool-call-log audit, and it
+ * proves the gap is invisible in text: an assistant REPORTING that it read a file
+ * is not evidence. What can be counted is whether a `read` call for a named path
+ * appears in the stream.
+ *
+ * Counted per UNIQUE PATH, not per denial. A session denied three times names the
+ * same four files three times, and an earlier version counted all twelve, which
+ * turned two denials into twenty-four "unread" rows and made the number useless.
+ *
+ * A FIRST VERSION ALSO MATCHED THE PLUGIN'S SOURCE INSTEAD OF ITS OUTPUT. A
+ * transcript containing a grep of `docs-gate.mjs` holds the denial template as a
+ * string literal, which looks like a denial and is not one. The signature below is
+ * the text a model sees in its tool result, `Error: <tool> is blocked`, and it
+ * only appears when the gate fired.
+ *
+ * @param raw - the whole transcript, still JSON-encoded per line.
+ * @returns unique named paths, how many were read, and which were not.
+ */
+function processFidelity(raw) {
+  const demanded = new Set()
+  const read = new Set()
+  for (const line of raw.split('\n')) {
+    if (/Error: \w+ is blocked once per session/.test(line)) {
+      for (const match of line.matchAll(/\\n  - (~?[^\\"]+\.md)/g)) demanded.add(match[1])
+      continue
+    }
+    // Only a read counts. A path named in another denial is not a read, which is
+    // what the per-path version above was written to fix.
+    if (!READ_TOOLS_RE.test(line)) continue
+    for (const path of demanded) {
+      if (line.includes(path.split('/').pop())) read.add(path)
+    }
+  }
+  const unread = [...demanded].filter(path => !read.has(path))
+  return { demanded: [...demanded], read: [...read], unread }
+}
+
 /** Analyse one transcript. */
 function analyse(text) {
   const calls = readCalls(text)
@@ -101,6 +142,7 @@ function analyse(text) {
     toolCalls: calls.length,
     instructionFile: INSTRUCTION_FILE_RE.test(blob),
     coreDocs: core,
+    ...processFidelity(text),
   }
 }
 
@@ -118,6 +160,13 @@ function main() {
     transcripts: total,
     readInstructionFile: rows.filter(r => r.instructionFile).length,
     readAnyCoreDoc: rows.filter(r => r.coreDocs.length > 0).length,
+    denied: rows.filter(r => r.denials > 0).length,
+    denied: rows.filter(r => r.demanded.length > 0).length,
+    demandedPaths: rows.reduce((n, r) => n + r.demanded.length, 0),
+    readPaths: rows.reduce((n, r) => n + r.read.length, 0),
+    unreadPaths: rows.reduce((n, r) => n + r.unread.length, 0),
+    sessionsHonoured: rows.filter(r => r.demanded.length > 0 && r.unread.length === 0).length,
+    sessionsIgnored: rows.filter(r => r.demanded.length > 0 && r.read.length === 0).length,
     perDoc: Object.fromEntries(CORE_DOCS.map(doc => [doc, rows.filter(r => r.coreDocs.includes(doc)).length])),
   }
   if (json) {
@@ -125,10 +174,21 @@ function main() {
     return
   }
   const pct = (n) => total === 0 ? '0%' : `${Math.round(n / total * 100)}%`
+  const pct2 = (n, of) => of === 0 ? '0%' : `${Math.round(n / of * 100)}%`
   console.log(`sessions root            : ${root}`)
   console.log(`transcripts with reads   : ${total}`)
   console.log(`read an instruction file : ${summary.readInstructionFile} (${pct(summary.readInstructionFile)})`)
   console.log(`read any core doc        : ${summary.readAnyCoreDoc} (${pct(summary.readAnyCoreDoc)})`)
+  console.log('')
+  console.log('process fidelity: did a denied session read what the denial named?')
+  console.log(`  sessions the gate denied  : ${summary.denied}`)
+  console.log(`  distinct docs demanded    : ${summary.demandedPaths}`)
+  console.log(`  of those, actually read   : ${summary.readPaths} (${pct2(summary.readPaths, summary.demandedPaths)} of demanded)`)
+  console.log(`  left unread               : ${summary.unreadPaths}`)
+  // A session that ended right after being denied has not refused anything; it
+  // stopped. Reported separately so an abandoned probe cannot read as defiance.
+  console.log(`  sessions that read ALL of them: ${summary.sessionsHonoured} of ${summary.denied}`)
+  console.log(`  sessions that read NONE       : ${summary.sessionsIgnored}`)
   console.log('per-doc read counts:')
   for (const [doc, count] of Object.entries(summary.perDoc)) console.log(`  ${String(count).padStart(4)}  ${doc}`)
 }

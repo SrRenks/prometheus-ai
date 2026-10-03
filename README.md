@@ -263,6 +263,18 @@ before reading the set**, at a median of 3 tool calls in, and 51 of them mutated
 within the first 5 calls. The window in which a hint could plausibly work is
 routinely zero to three calls.
 
+That local number matches a result published far more widely. Shin, [The
+Compliance Gap](https://arxiv.org/abs/2605.01771), ran 2,031 sessions across six
+frontier models and found **0% compliance on file reading under default framing**:
+Claude Sonnet 4 agreed verbally ten times out of ten and bypassed in all ten. The
+important part is the second theorem. The gap is undetectable from text alone — by
+any human or LLM observer — so an agent SAYING it read a file is not evidence, and
+no amount of reading transcripts can recover the truth. What the paper prescribes
+is a tool-call log, which is what this gate is, and its controlled result points
+the same way: removing the affordance to skip raised compliance from 0% to 75%
+(Cohen's d = 2.47). The fix is to remove the shortcut, not to phrase the request
+better.
+
 `docs-gate.mjs` observes `tools/pre-execute` - the waterfall `dsh-tools` runs
 before every tool body - and denies a mutating call until the session has read
 what that call's tier requires. The denial reaches the model as the tool result,
@@ -628,15 +640,34 @@ of AI writing, the ETH Zurich study on instruction bloat and inference cost, the
 METR trial on measured developer productivity, the DORA report on AI as an
 amplifier, OWASP's application and LLM top tens, Jakob Nielsen on AI usability,
 Diataxis, Keep a Changelog, Conventional Commits, and the work of Parnas, Yourdon
-and Constantine, Feathers, Nygard, Knuth, and Chroma. Two recent additions bear
-directly on the gate: **AgentGuard** (arXiv:2609.16287), which measures what
-execution guardrails actually buy on real coding-agent traces, and Rodrigues
-Pereira's **An LLM Agent Cannot Be a Gate**, which supplies the security framing —
-complete mediation, and why an agent may author a gate but must never be one. That
-second one is a self-published preprint with a single deployment behind it, and
-`sources.md` says so where it is cited, because the argument is what this repo
-borrowed, not the evidence. If a rule here misstates its source, or a source is
-missing, the fix belongs in that file.
+and Constantine, Feathers, Nygard, Knuth, and Chroma.
+
+Four additions bear directly on the gate, and the weight of each is recorded where
+it is cited rather than left to the reader to guess:
+
+- Shin, **[The Compliance Gap](https://arxiv.org/abs/2605.01771)** (arXiv:2605.01771) — 2,031
+  sessions, six frontier models, **0% compliance on file reading**, and a proof
+  that the gap cannot be detected from text. This is the strongest published
+  support the gate has, and it also bounds the claim: an agent saying it read a
+  file is never evidence.
+- Dai and Wang, **[AgentGuard](https://arxiv.org/abs/2609.16287)** (arXiv:2609.16287) — what
+  execution guardrails buy on real coding-agent traces: an abnormal execution rate
+  cut from 69.0% to 26.7%, completion up from 21.7% to 35.0%.
+- **[String](https://arxiv.org/abs/2608.28027)** (arXiv:2608.28027) — causal staging: a tier
+  of detail disclosed one turn too early costs up to 23 accuracy points, and
+  proper staging drops wrong-action selection from 28% to 2%. This is the result
+  behind not loading rules a call cannot use.
+- Du, **[Memory for Autonomous LLM Agents](https://arxiv.org/abs/2603.07670)** (arXiv:2603.07670)
+  — summarisation drift and attentional dilution, the reason a credit must be
+  bound to raw content and why a bigger window is not the answer.
+
+Rodrigues Pereira's **An LLM Agent Cannot Be a Gate** and the Du survey are not
+peer-reviewed: one is a self-published preprint with a single deployment, the
+other a single-author survey. `sources.md` marks both, because what this repo
+borrowed from them is the framing, not the evidence. ObjectGraph
+(arXiv:2604.27820) is cited as direction only, and `sources.md` says why the 95%
+token reduction it reports is not a result about this gate. If a rule here
+misstates its source, or a source is missing, the fix belongs in that file.
 
 Named after the Prometheus Circuit in Chrono Trigger, the machine that directs the
 others and answers to the people who keep it.
