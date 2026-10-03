@@ -156,5 +156,100 @@ console.log('\na target outside an identified boundary is left alone')
   check('an edit in a different workspace is allowed', decision.kind === 'allow', decision.kind)
 }
 
+// ── a whole session, from a cold deny to an allow ───────────────────────────
+// Everything above probes one decision. This drives the REAL plugin through a
+// session's shape: a fresh agent is denied, reading the named docs lifts it, and
+// a doc rewritten mid-session loses its credit. It needs no model, because the
+// gate is mechanical - every decision depends on the tool call and the ledger,
+// never on what an assistant would have said.
+
+/** Mount the real gate and return a driver for one fresh session. */
+const mountSession = (sessionId) => {
+  const listeners = new Map()
+  apply({
+    logger: { warn: () => {} },
+    on: (name, handler) => {
+      listeners.set(name, [...(listeners.get(name) ?? []), handler])
+      return () => {}
+    },
+    get: (name) => (name === 'fs' ? realSeam : undefined),
+  }, { repoRoots: [CONFIG_ROOT], extraDocs: [] })
+
+  const agent = { session: { id: sessionId, header: { cwd: NO_MARKER_WORKSPACE } }, parentAgent: undefined }
+  /** Run one tool call through the plugin's waterfall. */
+  const call = async (exec) => {
+    let index = -1
+    const next = async () => {
+      index += 1
+      const handlers = listeners.get('tools/pre-execute') ?? []
+      return index >= handlers.length ? { kind: 'allow' } : handlers[index]({ ...exec, agent }, next)
+    }
+    return next()
+  }
+  return { call, agent }
+}
+
+/** The doc paths a denial names, in the order it names them. */
+const demanded = (decision) => (decision.reason ?? '')
+  .split('\n')
+  .filter(line => /^\s+- /.test(line))
+  .map(line => line.trim().slice(2).replace('~/.config/agent-config/', ''))
+
+console.log('\na cold session is denied, and the read it names lifts the gate')
+{
+  const session = mountSession(`verify-e2e-${Date.now()}`)
+
+  const first = await session.call({ name: 'write', arguments: { file_path: `${NO_MARKER_WORKSPACE}/probe.md` } })
+  check('a fresh session is denied on its first mutation', first.kind === 'deny', first.kind)
+  const names = demanded(first)
+  check('the denial names exactly the core tier for a prose write', names.length === 1 && names[0].endsWith('core/principles.md'), names.join(', '))
+
+  // Read what it asked for, one file at a time, and watch the gate lift.
+  for (const [index, relative] of names.entries()) {
+    const absolute = `${CONFIG_ROOT}/${relative}`
+    const read = await session.call({ name: 'read', arguments: { file_path: absolute } })
+    check(`read ${index + 1} of ${names.length} is allowed`, read.kind === 'allow', read.kind)
+  }
+  const after = await session.call({ name: 'write', arguments: { file_path: `${NO_MARKER_WORKSPACE}/probe.md` } })
+  check('and the same mutation is allowed once they are read', after.kind === 'allow', after.kind)
+}
+
+console.log('\na source change demands the code tier, a commit demands the commit tier')
+{
+  const prose = demanded(await mountSession(`verify-prose-${Date.now()}`)
+    .call({ name: 'write', arguments: { file_path: `${NO_MARKER_WORKSPACE}/notes.md` } }))
+  check('prose asks for one doc', prose.length === 1, prose.join(', '))
+
+  const source = demanded(await mountSession(`verify-source-${Date.now()}`)
+    .call({ name: 'edit', arguments: { file_path: `${NO_MARKER_WORKSPACE}/a.ts` } }))
+  check('source asks for the code tier', source.length >= 4, source.join(', '))
+  check('and no language guide, because TypeScript has none', !source.some(d => d.includes('languages/')), source.join(', '))
+
+  const python = demanded(await mountSession(`verify-py-${Date.now()}`)
+    .call({ name: 'edit', arguments: { file_path: `${NO_MARKER_WORKSPACE}/a.py` } }))
+  check('Python adds its guide', python.some(d => d.endsWith('languages/python.md')), python.join(', '))
+
+  const commit = demanded(await mountSession(`verify-commit-${Date.now()}`)
+    .call({ name: 'bash', arguments: { command: 'git commit -m x' } }))
+  check('a commit asks for the commit-time docs', commit.some(d => d.endsWith('git-workflow.md')) && commit.some(d => d.endsWith('ai-writing.md')), commit.join(', '))
+  check('and an ordinary edit does not', !prose.some(d => d.endsWith('git-workflow.md')), prose.join(', '))
+}
+
+console.log('\na credit follows content, not the mention of a path')
+{
+  const session = mountSession(`verify-credit-${Date.now()}`)
+  const doc = `${CONFIG_ROOT}/core/principles.md`
+  const target = { name: 'write', arguments: { file_path: `${NO_MARKER_WORKSPACE}/probe.md` } }
+
+  await session.call({ name: 'read', arguments: { file_path: doc } })
+  const held = await session.call(target)
+  check('reading the named doc lifts its part of the denial', !demanded(held).includes('core/principles.md'), demanded(held).join(', '))
+
+  const fresh = mountSession(`verify-failed-${Date.now()}`)
+  await fresh.call({ name: 'read', arguments: { file_path: `${CONFIG_ROOT}/core/principles.md.backup-does-not-exist` } })
+  const afterFailed = await fresh.call(target)
+  check('a read of a path that does not exist credits nothing', demanded(afterFailed).includes('core/principles.md'), demanded(afterFailed).join(', '))
+}
+
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`)
 process.exit(failures === 0 ? 0 : 1)
