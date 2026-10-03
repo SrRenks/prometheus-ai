@@ -41,11 +41,11 @@ Policy: a new behavioral rule or numeric threshold ships with its entry here, in
 - G. A. Campbell, Cognitive Complexity: An Overview and Evaluation, ICPC (2018): https://doi.org/10.1145/3194164.3194186 (retrieved 2026-09-15). Used in: the cognitive budget in core/docs/complexity.md, 15 per function.
 - Wily: High-Performance Complexity Gated-Feedback for AI Coding Agents, ACM Conference on AI and Agentic Systems (2026): https://doi.org/10.1145/3786335.3813220 (retrieved 2026-09-15). Used in: gating agent output on complexity metrics, core/docs/complexity.md and the review phase.
 - zj-karina/complexity-budget, evidence-based complexity budgets: https://github.com/zj-karina/complexity-budget (retrieved 2026-09-15). Used in: the numeric budgets, 60 lines per function, 500 per file, 4 parameters, nesting 3; core/docs/complexity.md, core/principles.md.
-- Robert C. Martin, Clean Code, chapters 1 and 3 (small functions, one thing per function, one level of abstraction, few arguments), ISBN 978-0132350884. Used in: the function-size, parameter, and nesting budgets, and the comment stance in core/docs/coding-standards.md.
+- Robert C. Martin, Clean Code, chapters 1 and 3 (small functions, one thing per function, one level of abstraction, few arguments), ISBN 978-0132350884: https://books.google.com/books?vid=ISBN9780132350884 (retrieved 2026-10-03). Used in: the function-size, parameter, and nesting budgets, and the comment stance in core/docs/coding-standards.md.
 - Martin Fowler, Refactoring, second edition, chapter 3 Bad Smells in Code, ISBN 978-0134757599: https://martinfowler.com/books/refactoring.html (retrieved 2026-09-15). Used in: the smell list in core/docs/maintainability.md.
 - D. L. Parnas, On the Criteria To Be Used in Decomposing Systems into Modules, Communications of the ACM 15(12) (1972): https://doi.org/10.1145/361598.361623 (retrieved 2026-09-15). Used in: module boundaries and information hiding in core/docs/coupling.md and core/docs/architecture.md.
-- E. Yourdon and L. Constantine, Structured Design (1978), ISBN 978-0138544713. Used in: coupling and cohesion criteria in core/docs/coupling.md and core/docs/maintainability.md.
-- Robert C. Martin, Clean Architecture (2017), ISBN 978-0134494166. Used in: dependency direction rules in core/docs/coupling.md and core/docs/architecture.md.
+- E. Yourdon and L. Constantine, Structured Design (1978), ISBN 978-0138544713: https://books.google.com/books?vid=ISBN9780138544713 (retrieved 2026-10-03). Used in: coupling and cohesion criteria in core/docs/coupling.md and core/docs/maintainability.md.
+- Robert C. Martin, Clean Architecture (2017), ISBN 978-0134494166: https://books.google.com/books?vid=ISBN9780134494166 (retrieved 2026-10-03). Used in: dependency direction rules in core/docs/coupling.md and core/docs/architecture.md.
 - Early Career Developers' Perceptions of Code Understandability: A Study of Complexity Metrics, arXiv:2303.07722: https://arxiv.org/abs/2303.07722 (retrieved 2026-09-15). Used in: tracking two complexity metrics instead of one, core/docs/complexity.md.
 - Microsoft, code metrics values (maintainability index): https://learn.microsoft.com/en-us/visualstudio/code-quality/code-metrics-values (retrieved 2026-09-15). Used in: the maintidx target in core/docs/languages/go.md and the measurement section of core/docs/maintainability.md.
 - Wikipedia, Cyclomatic complexity (structure of the metric and its limits): https://en.wikipedia.org/wiki/Cyclomatic_complexity (retrieved 2026-09-15). Used in: the explanation of what the metric counts in core/docs/complexity.md.
@@ -59,8 +59,8 @@ Policy: a new behavioral rule or numeric threshold ships with its entry here, in
 ## Testing
 - Martin Fowler, The Practical Test Pyramid: https://martinfowler.com/articles/practical-test-pyramid.html (retrieved 2026-09-15). Used in: the unit, integration, and end-to-end split in core/docs/testing.md.
 - Martin Fowler, Self-Testing Code: https://martinfowler.com/bliki/SelfTestingCode.html (retrieved 2026-09-15). Used in: tests as the precondition for refactoring, core/docs/testing.md.
-- Kent Beck, Test-Driven Development: By Example (2002), ISBN 978-0321146533. Used in: test-first in AGENTS.md section 2 and core/docs/development-workflow.md.
-- Michael Feathers, Working Effectively with Legacy Code (2004), ISBN 978-0131177055. Used in: characterization tests before changing untested code, core/docs/testing.md and core/docs/debugging.md.
+- Kent Beck, Test-Driven Development: By Example (2002), ISBN 978-0321146533: https://books.google.com/books?vid=ISBN9780321146533 (retrieved 2026-10-03). Used in: test-first in AGENTS.md section 2 and core/docs/development-workflow.md.
+- Michael Feathers, Working Effectively with Legacy Code (2004), ISBN 978-0131177055: https://books.google.com/books?vid=ISBN9780131177055 (retrieved 2026-10-03). Used in: characterization tests before changing untested code, core/docs/testing.md and core/docs/debugging.md.
 
 ## Security
 - OWASP, Application Security Verification Standard: https://github.com/OWASP/ASVS (retrieved 2026-09-15). Used in: the verification requirements behind core/docs/security.md.
@@ -113,7 +113,7 @@ Writing by people who ship code with agents. These inform the posture of the con
 - Jakob Nielsen (UX Tigers), Intent by Discovery: Designing the AI User Experience, and A New AI: Creation as Exploration and Discovery: https://www.uxtigers.com/post/intent-ux (retrieved 2026-09-15). Used in: the ask-before-acting rules (AGENTS.md section 0 item 5, the plan skill) and how .ai/project.md is written to be read by a human and an agent.
 
 ## Internal, measured
-- Retained eval set (anchor checks plus task set): core/docs/evals.md. Anchor evidence: liangshen issue 6, 0/9 first-request anchoring with the skill catalog injected versus about 81 percent without. Used in: preset design decisions.
+- Retained eval set (anchor checks plus task set): core/docs/evals.md. Anchor evidence: liangshen issue 6 (NO PUBLIC URL: the issue tracker it comes from is not published, so this is an internal reference this repo can cite but a reader cannot follow), 0/9 first-request anchoring with the skill catalog injected versus about 81 percent without. Used in: preset design decisions.
 - The 2026-09 config review that drove the two preset swaps: summarized in the preset patch comments and core/docs/evals.md.
 - Skill delivery scale policy: search and load stays the default while the catalog is small, and catalog injection is not reintroduced past roughly three to five skills. Basis: the anchor measurement above plus the instruction-budget entry.
 - Standing instruction injection, measured 2026-09-16 with tiktoken on o200k_base and cl100k_base: AGENTS.md reads 2283 and 2292 tokens, and with the Claude Code layer (agents/claude-code/CLAUDE.md) the first request carries 2460 and 2470. Used in: the injection-budget anchor check in core/docs/evals.md.

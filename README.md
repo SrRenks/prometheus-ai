@@ -613,48 +613,76 @@ MIT. See `LICENSE`.
 This config is assembled from other people's work. `core/docs/sources.md` records
 every source with its retrieval date and what it backs, split between the sources
 behind specific rules and the practitioner writing that shaped the stance. The
-people below are the ones it leans on most.
+people below are the ones it leans on most, each with the thing itself rather than
+only a name.
 
-- Fabio Akita (`akitaonrails`), for the position that AI-assisted work ships under
-  the same review standard as any other code, and for `ai-memory`, an independent
-  build of the same idea behind `.ai/`: agent memory as versioned markdown, with
-  writes gated by evaluation.
-- Robert C. Martin and Justin Martin. The function rules in Clean Code (small
-  functions, one thing per function, few arguments, one level of abstraction)
-  state in prose what this repo enforces in numbers; Clean Architecture covers
-  dependency direction. Their Clean AI: Agentic Discipline series makes the
-  argument the guardrails act on: discipline an agent cannot be trusted to
-  remember belongs in the tooling.
-- Andrej Karpathy, for the llm-rigor principles: think before coding, surgical
-  changes, minimum viable code, and pushback that scales with certainty.
-- HumanLayer, for the Research-Plan-Implement to CRISPY talk, which supplied the
-  CRISPY name and phase structure, and the argument that always-on prompt budget
-  is scarce.
-- Anthropic, for Claude's Character and the sycophancy research behind the
-  non-negotiables, the context engineering guidance behind the lean injection
-  policy, and the skills pattern that `skill_search` mirrors.
-- Matt Pocock, for publishing his own agent skills, a working reference for how a
-  skill directory and its frontmatter should look.
-- Martin Fowler and Kent Beck, for the test pyramid and self-testing code that the
-  testing rules follow, and for writing about augmented coding as it develops.
-- Thomas McCabe and G. Ann Campbell, for the two complexity metrics this repo
-  budgets against, and the maintainers of `zj-karina/complexity-budget` for the
-  numeric budgets themselves.
-- Google, for the developer style guide, the engineering practices on code
-  review, and the SRE postmortem culture.
-- Simon Willison, for documenting in public what agent tooling does in practice,
-  failure modes included, and for naming the lethal trifecta behind the guardrails.
-- Jesse Vincent, whose superpowers project is the working reference for shipping
-  one skill set to several harnesses at once.
+- [Fabio Akita](https://akitaonrails.com/en/2026/02/24/rant-akita-caved-to-ai/),
+  for the position that AI-assisted work ships under the same review standard as
+  any other code, and for [`ai-memory`](https://github.com/akitaonrails/ai-memory),
+  an independent build of the same idea behind `.ai/`: agent memory as versioned
+  markdown, with writes gated by evaluation.
+- [Robert C. Martin](https://cleancoders.com/episode/agentic-discipline-6) and
+  Justin Martin. [Clean Code](https://books.google.com/books?vid=ISBN9780132350884)
+  states in prose what this repo enforces in numbers (small functions, one thing
+  per function, few arguments, one level of abstraction);
+  [Clean Architecture](https://books.google.com/books?vid=ISBN9780134494166)
+  covers dependency direction. Their
+  [Clean AI: Agentic Discipline](https://cleancoders.com/episode/agentic-discipline-6)
+  series makes the argument the guardrails act on: discipline an agent cannot be
+  trusted to remember belongs in the tooling.
+- Andrej Karpathy, for the [llm-rigor](https://github.com/luiscrsilveira/llm-rigor)
+  principles: think before coding, surgical changes, minimum viable code, and
+  pushback that scales with certainty.
+- [HumanLayer](https://www.zenml.io/llmops-database/evolving-ai-coding-agent-workflows-from-research-plan-implement-to-crispy),
+  for the Research-Plan-Implement to CRISPY talk, which supplied the CRISPY name
+  and phase structure, and the argument that always-on prompt budget is scarce.
+- [Anthropic](https://www.anthropic.com/research/claude-character), for Claude's
+  Character and the sycophancy research behind the non-negotiables, the context
+  engineering guidance behind the lean injection policy, and the
+  [skills pattern](https://github.com/anthropics/skills/blob/main/spec/agent-skills-spec.md)
+  that `skill_search` mirrors.
+- [Matt Pocock](https://github.com/mattpocock/skills), for publishing his own agent
+  skills, a working reference for how a skill directory and its frontmatter should
+  look.
+- [Martin Fowler](https://martinfowler.com/books/refactoring.html) and
+  [Kent Beck](https://books.google.com/books?vid=ISBN9780321146533), for the test
+  pyramid and self-testing code that the testing rules follow, and for writing
+  about augmented coding as it develops.
+- [Thomas McCabe](https://doi.org/10.1109/TSE.1976.233837) and
+  [G. Ann Campbell](https://doi.org/10.1145/3194164.3194186), for the two
+  complexity metrics this repo budgets against, and the maintainers of
+  [`zj-karina/complexity-budget`](https://github.com/zj-karina/complexity-budget)
+  for the numeric budgets themselves.
+- [Google](https://developers.google.com/style), for the developer style guide,
+  the [engineering practices](https://google.github.io/eng-practices/review/reviewer/)
+  on code review, and the
+  [SRE postmortem culture](https://sre.google/sre-book/postmortem-culture/).
+- [Simon Willison](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/), for
+  documenting in public what agent tooling does in practice, failure modes
+  included, and for naming the lethal trifecta behind the guardrails.
+- [Jesse Vincent](https://github.com/obra/superpowers), whose superpowers project
+  is the working reference for shipping one skill set to several harnesses at once.
 
 Papers, standards, and studies behind the rest of the rules are listed in
-`core/docs/sources.md`: among them the Agent Skills standard that this repo's
-`SKILL.md` format follows, the Wikipedia WikiProject AI Cleanup essay on the signs
-of AI writing, the ETH Zurich study on instruction bloat and inference cost, the
-METR trial on measured developer productivity, the DORA report on AI as an
-amplifier, OWASP's application and LLM top tens, Jakob Nielsen on AI usability,
-Diataxis, Keep a Changelog, Conventional Commits, and the work of Parnas, Yourdon
-and Constantine, Feathers, Nygard, Knuth, and Chroma.
+`core/docs/sources.md`: among them the
+[Agent Skills standard](https://agentskills.io) that this repo's `SKILL.md` format
+follows, the Wikipedia WikiProject AI Cleanup
+[essay on the signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing),
+the ETH Zurich [study on instruction bloat and inference cost](https://arxiv.org/abs/2602.11988),
+the METR [trial on measured developer productivity](https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/),
+the DORA report on [AI as an amplifier](https://dora.dev/insights/balancing-ai-tensions/),
+OWASP's [application](https://github.com/OWASP/ASVS) and
+[LLM](https://genai.owasp.org/llm-top-10/) top tens,
+[Jakob Nielsen on AI usability](https://www.uxtigers.com/post/intent-ux),
+[Diataxis](https://diataxis.fr/),
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), and the
+work of [Parnas](https://doi.org/10.1145/361598.361623),
+[Yourdon and Constantine](https://books.google.com/books?vid=ISBN9780138544713),
+[Feathers](https://books.google.com/books?vid=ISBN9780131177055),
+[Nygard](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions),
+[Knuth](https://doi.org/10.1145/356635.356640), and
+[Chroma](https://www.trychroma.com/research/context-rot).
 
 Four additions bear directly on the gate, and the weight of each is recorded where
 it is cited rather than left to the reader to guess:
@@ -675,16 +703,20 @@ it is cited rather than left to the reader to guess:
   Summarisation drift and attentional dilution, the reason a credit must be
   bound to raw content and why a bigger window is not the answer.
 
-Rodrigues Pereira's **An LLM Agent Cannot Be a Gate** and the Du survey are not
-peer-reviewed: one is a self-published preprint with a single deployment, the
-other a single-author survey. `sources.md` marks both, because what this repo
-borrowed from them is the framing, not the evidence. ObjectGraph
-(arXiv:2604.27820) is cited as direction only, and `sources.md` says why the 95%
-token reduction it reports is not a result about this gate. If a rule here
+[Rodrigues Pereira's An LLM Agent Cannot Be a Gate](https://doi.org/10.5281/zenodo.20520851)
+and the Du survey are not peer-reviewed: one is a self-published preprint with a
+single deployment, the other a single-author survey. `sources.md` marks both,
+because what this repo borrowed from them is the framing, not the evidence.
+[ObjectGraph](https://arxiv.org/abs/2604.27820) is cited as direction only, and
+`sources.md` says why the 95% token reduction it reports is not a result about
+this gate. One reference stays unlinked on purpose: "liangshen issue 6", cited for
+the 0/9 anchoring measurement, comes from an issue tracker that is not published,
+so a reader cannot follow it and a link would pretend otherwise. If a rule here
 misstates its source, or a source is missing, the fix belongs in that file.
 
-Named after the Prometheus Circuit in Chrono Trigger, the machine that directs the
-others and answers to the people who keep it.
+Named after the [Prometheus Circuit](https://www.chronowiki.org/wiki/Prometheus_Circuit)
+in Chrono Trigger, the name Robo carries in Chrono Cross, where he is the machine
+that directs the others and answers to the people who keep it.
 
 Thank you all. Long live knowledge and open source. =)
 
