@@ -5,17 +5,38 @@
 # to init. To re-enable, add to ~/.claude/settings.json:
 #   "SessionStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "~/.claude/hooks/session-init" }] }]
 # Prefer running `ai-init` explicitly in a project instead.
+#
+# A FAILURE HERE MUST NOT LOOK LIKE SUCCESS. The first version created nothing in
+# a project that had no `.ai/` yet: it wrote into a directory it never made, and
+# `exit 0` reported success over five live errors on stderr. Found by feeding it a
+# case rather than by reading it, which is the whole reason `tools/test-hooks.mjs`
+# exists.
+set -uo pipefail
+
 SESSION_DIR="$(pwd)/.ai"
 CONFIG="$HOME/.config/agent-config"
 
+# Report the failure and stop. `session-init` is a SessionStart hook, so a non-zero
+# exit surfaces the problem without denying any tool.
+fail() {
+    echo "session-init: $1" >&2
+    exit 1
+}
+
+[ -d "$CONFIG" ] || fail "no shared config at $CONFIG"
+
+mkdir -p "$SESSION_DIR" || fail "cannot create $SESSION_DIR"
+
+# The symlink is replaced only when it is wrong, so a project that points .ai/ at
+# a local file keeps it.
 if [ ! -e "$SESSION_DIR/agents.md" ]; then
-    ln -sfn "$CONFIG/AGENTS.md" "$SESSION_DIR/agents.md"
+    ln -sfn "$CONFIG/AGENTS.md" "$SESSION_DIR/agents.md" || fail "cannot link $SESSION_DIR/agents.md"
 fi
 
 for FILE in project.md session.md assumptions.md scratchpad.md; do
-    if [ ! -f "$SESSION_DIR/$FILE" ]; then
-        cp "$CONFIG/core/templates/$FILE" "$SESSION_DIR/$FILE"
-    fi
+    [ -f "$SESSION_DIR/$FILE" ] && continue
+    [ -f "$CONFIG/core/templates/$FILE" ] || fail "no template at $CONFIG/core/templates/$FILE"
+    cp "$CONFIG/core/templates/$FILE" "$SESSION_DIR/$FILE" || fail "cannot create $SESSION_DIR/$FILE"
 done
 
 exit 0

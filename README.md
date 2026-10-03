@@ -590,6 +590,21 @@ substantive work. The gate is that success rate does not drop and cost per solve
 task does not rise materially. Public benchmark scores are not treated as
 evidence.
 
+## Size, and the one budget this file breaks
+
+`core/docs/complexity.md` budgets a file at 500 lines and requires the reason be
+documented whenever one exceeds it. This file is about 680, and it is the only
+artefact in the repo that does. It is the front door: everything a reader needs to
+decide whether to install this, understand what it does, and check the claims is
+here on purpose, because the alternative is a reader following four links before
+they can judge anything. The budget exists to stop CODE becoming unreadable, and
+the check that matters for docs is different: whether a doc states claims that can
+be verified, which is why every measurement in this file names the command that
+reproduces it rather than a number to be trusted.
+
+`core/docs/project-docs.md` exceeds the same budget and declares its own reason at
+the top of the file.
+
 ## License
 
 MIT. See `LICENSE`.

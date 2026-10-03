@@ -26,8 +26,10 @@ Only commands that are known to exist in this project.
 
 ## Repository structure
 Real top-level entries - no invented directories.
-- **app/** - <purpose>
-- **docs/** - project documentation (start at `docs/index.md`)
+```
+app/    <purpose>
+docs/   project documentation (start at docs/index.md)
+```
 
 ## Status
 - Maturity: NEW / EXISTING (generated date)

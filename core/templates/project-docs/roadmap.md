@@ -4,18 +4,15 @@
 
 Phased implementation plan. See [architecture.md](architecture.md) for design rationale.
 
-## P0 - <phase name> <status-icon>
-**Status**: <done | in progress | planned>
+## P0 - <phase name> (done | in progress | planned)
 
 <description>.
 
-## P1 - <phase name> <status-icon>
-**Status**: <status>
+## P1 - <phase name> (status)
 
 <description>.
 
-## P2 - <phase name>
-**Status**: planned
+## P2 - <phase name> (planned)
 
 <description>.
 

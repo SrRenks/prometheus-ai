@@ -5,7 +5,15 @@ Defines the committed documentation of a project: root-level entry files and the
 never does (it lives in `.ai/`, gitignored).
 
 This standard encodes Diátaxis, Docs as Code, Keep a Changelog, and
-MkDocs/Docusaurus conventions as a single baseline. Project-specific deviations
+MkDocs/Docusaurus conventions as a single baseline.
+
+EXCEPTION, declared as `core/docs/complexity.md` requires when a limit is
+exceeded: this file is over the 500-line file budget, and deliberately. It is a
+reference standard read in sections rather than an artefact loaded whole, and
+splitting it would scatter one convention across files a reader has to join back
+together, which the same rule lists as a reason not to split. The budget exists to
+stop CODE becoming unreadable; applying it to a consulted reference measures the
+wrong thing. Project-specific deviations
 go in `.ai/docs/project-docs.md`.
 
 ## Core principles

@@ -20,19 +20,30 @@ FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
 # Determine linter by extension
 case "$FILE" in
     *.py)
+        # `not checked` and `clean` are different answers and only one of them is
+        # good news. Saying so once per write is noise, so it is a single line the
+        # model can act on the first time and ignore afterwards.
         if command -v ruff &>/dev/null; then
             OUTPUT=$(ruff check "$FILE" 2>&1)
             if [ -n "$OUTPUT" ]; then
                 echo "{\"systemMessage\": \"Lint issues in $FILE:\\n$OUTPUT\"}" >&2
             fi
+        else
+            echo "{\"systemMessage\": \"Not linted: ruff is not installed, so $FILE was only checked by nothing. The budgets this repo states are unverified until it is.\"}" >&2
         fi
         ;;
     *.go)
+        # `go vet` on a lone file complains that it wants package arguments and
+        # says nothing about the code, which is noise a reader learns to skip.
+        # Vet the PACKAGE the file belongs to, which is what actually lints it.
         if command -v go &>/dev/null; then
-            OUTPUT=$(go vet "$FILE" 2>&1)
+            PKG_DIR="$(dirname "$FILE")"
+            OUTPUT=$(cd "$PKG_DIR" && go vet ./... 2>&1)
             if [ -n "$OUTPUT" ]; then
-                echo "{\"systemMessage\": \"Lint issues in $FILE:\\n$OUTPUT\"}" >&2
+                echo "{\"systemMessage\": \"Lint issues in $PKG_DIR:\\n$OUTPUT\"}" >&2
             fi
+        else
+            echo "{\"systemMessage\": \"Not linted: go is not installed, so $FILE was checked by nothing.\"}" >&2
         fi
         ;;
     *.rs)
