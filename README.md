@@ -320,12 +320,21 @@ The hint fired; nothing enforced it. And on 2026-10-02 the hint was found never
 to have reached a live session at all, so even that 30-session figure counts
 delivery it may not have achieved.
 
-Replaying those same transcripts against the gate's own classifier is the
-strongest argument for enforcing at the tool call rather than in a message: of
-the 84 sessions that mutated anything, **83 (99%) made their first mutation
-before reading the set**, at a median of 3 tool calls in, and 51 of them mutated
+Replaying those transcripts against the gate's own classifier is the strongest
+argument for enforcing at the tool call rather than in a message, and it is a
+BASELINE FROM BEFORE THE GATE EXISTED rather than a current reading: measured
+2026-10-02 on the 84 sessions recorded up to then, **83 (99%) made their first
+mutation before reading the set**, at a median of 3 tool calls in, and 51 mutated
 within the first 5 calls. The window in which a hint could plausibly work is
 routinely zero to three calls.
+
+That percentage falls as this gate does its job, so quoting it as a live figure
+would invert its meaning: a session that mutates before reading is now the case
+the gate is built to catch, and the sessions recorded since are a mix of gated and
+ungated. `tools/audit-instruction-reads.mjs` reports the part that can be
+re-derived on demand, which is how many transcripts read an instruction file and
+how many denials a session then honoured. The pre-gate figure is history and is
+labelled as such.
 
 That local number matches a result published far more widely. Shin, [The
 Compliance Gap](https://arxiv.org/abs/2605.01771), ran 2,031 sessions across six
@@ -442,7 +451,7 @@ past roughly three to five.
 
 ## What agents are told
 
-`AGENTS.md` is the contract every tool receives: 95 lines covering scope and
+`AGENTS.md` is the contract every tool receives: 89 lines covering scope and
 ownership, non-negotiables, project entry, the CRISPY workflow, memory files, the
 no-go list, and tool usage. Read it directly for the rules; depth lives in
 `core/docs/`, which agents load on demand.
@@ -487,9 +496,10 @@ belongs there too.
 
 The gate is the strongest of the three, and deliberately the narrowest: it denies
 a mutating call until the behavioural docs that call needs have been read. That
-failure is the one this repo measured as systematic. Of the 84 sessions that
-mutated anything, **83 (99%) made their first mutation before reading the rules**.
-No amount of prose moved that, so a control was the only lever left. The
+failure is the one this repo measured as systematic before the gate existed: of
+the 84 sessions recorded up to 2026-10-02 that mutated anything, **83 (99%) made
+their first mutation before reading the rules**, as above. No amount of prose
+moved that, so a control was the only lever left. The
 quantitative case for a surface like it comes from AgentGuard
 ([arXiv:2609.16287](https://arxiv.org/abs/2609.16287), `sources.md`): a frontier
 harness left unmodified still modified unrelated files, rewrote tests, or ignored
@@ -610,8 +620,8 @@ python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); prin
 Each check needs its own loop: `bash -n` and `node --check` only inspect the
 first file they are given. The last check needs `tiktoken` (`pip install
 tiktoken`), which is not a repo dependency. It measures what a first request
-carries: 2460 tokens on 2026-09-16 against the ~2.5K ceiling, so roughly 40
-tokens of slack (`core/docs/evals.md`).
+carries: ~2467 tokens as of 2026-10-05 against the ~2.5K ceiling, so roughly 30
+tokens of slack (`core/docs/evals.md` records the method and the older reading).
 
 Skill frontmatter needs `name` and `description`, with `name` matching the
 directory. Rule frontmatter needs `description`, `globs`, and
@@ -776,14 +786,22 @@ Thank you all. Long live knowledge and open source. =)
 ## Size, and the one budget this file breaks
 
 `core/docs/complexity.md` budgets a file at 500 lines and requires the reason be
-documented whenever one exceeds it. This file is about 680, and it is the only
-artefact in the repo that does. It is the front door: everything a reader needs to
-decide whether to install this, understand what it does, and check the claims is
-here on purpose, because the alternative is a reader following four links before
-they can judge anything. The budget exists to stop CODE becoming unreadable, and
-the check that matters for docs is different: whether a doc states claims that can
-be verified, which is why every measurement in this file names the command that
-reproduces it rather than a number to be trusted.
+documented whenever one exceeds it. This file and `core/docs/project-docs.md` are
+the two that do. `project-docs.md` declares its own at the top of the file; this
+file declares its own here, where a reader who reached the end is already asking
+why it is long.
 
-`core/docs/project-docs.md` exceeds the same budget and declares its own reason at
-the top of the file.
+NO LINE COUNT IS GIVEN, deliberately. An earlier version of this section said
+"about 680", and the file was 789 lines the next day: seven commits had each added
+a paragraph and every one was individually worth adding. That is the
+death-by-a-thousand-cuts shape `complexity.md` warns about, happening to the file
+that was quoting the warning. A number that drifts is worse than no number, and
+`wc -l README.md` answers the question exactly when someone wants it.
+
+WHAT JUSTIFIES THE EXCEPTION. The budget exists to stop code becoming unreadable.
+A README is not code: it is read once to decide whether to adopt this, searched
+afterwards, and never executed. The check that matters for a doc is different, and
+it is whether its claims can be verified. Every measurement in this file names the
+command that reproduces it, and where a figure cannot be re-derived on demand it is
+dated and labelled as a reading rather than stated as a fact. That standard is
+what this file is held to instead of a line limit.
