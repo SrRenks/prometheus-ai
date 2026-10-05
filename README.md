@@ -74,13 +74,19 @@ repositories, because this config is not the whole system.
 | 2 | clone this repo, run `setup.sh` | harness bridges, git identity include |
 | 3 | `bash agents/dsh/install.sh` | the `renks` preset, and the 0.2.0 bundle at `~/dsh-user-presets` |
 
-One constraint is worth knowing before you add a second preset: the bundle
-declares `dsh.bundle.patch` as a **single path**, and the builder refuses to emit
-more than one. dsh 0.2.0 accepts a path or a list, but dsh 0.1.2 reads the field
-with no type check and hands it to `path.join`, so a list throws
-`ERR_INVALID_ARG_TYPE` before any profile loads and `dsh web` will not start.
-That is what a one-element list in this manifest did on a second machine running
-0.1.2-rc.1, and `tools/verify-bundle-manifest.mjs` reproduces both loaders so it
+Two constraints matter on a second machine, both found by `dsh web` failing on
+one running an older dsh.
+
+The preset needs **dsh >= 0.1.7-alpha.1**, because a preset is a
+`@deepseek-ai/dsh-agent-preset` row and that package does not exist before then.
+`install.sh` checks for it first and refuses with the upgrade command rather than
+building a bundle whose profile cannot start.
+
+The bundle declares `dsh.bundle.patch` as a **single path**, and the builder
+refuses to emit more than one. dsh 0.2.0 accepts a path or a list, but dsh 0.1.2
+reads the field with no type check and hands it to `path.join`, so a list throws
+`ERR_INVALID_ARG_TYPE` before any profile loads. That is what a one-element list
+did here, and `tools/verify-bundle-manifest.mjs` reproduces both loaders so it
 cannot come back. `dsh-unrestricted` has always declared a single path for the
 same reason.
 | 4 | clone `dsh-unrestricted-renks`, edit the profile's `package.json` | the toggleable unrestricted plugin, mounted |

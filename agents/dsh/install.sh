@@ -42,6 +42,30 @@ echo "=== dsh personal layer install ==="
 echo "  repo     : ${REPO}"
 echo "  dsh home : ${DSH_H}"
 
+# ── 0) Refuse a dsh too old to mount a preset, BEFORE building anything ──────
+# A preset is a `@deepseek-ai/dsh-agent-preset` row, and that package does not
+# exist before 0.1.7-alpha.1. On an older dsh this installer used to succeed,
+# sync the bundle, and leave `dsh web` failing at startup with
+#
+#   failed to import loader entry preset-renks (@deepseek-ai/dsh-agent-preset):
+#   Cannot find package '@deepseek-ai/dsh-agent-preset'
+#
+# which names the symptom and not the cause. Checking here turns a dead launcher
+# into one actionable line. Probed from the installed tree, so no network.
+PRESET_ROW=""
+for candidate in "${DSH_H}"/profiles/*/node_modules/@deepseek-ai/dsh-agent-preset/package.json \
+                 "${DSH_H}"/profiles/node_modules/@deepseek-ai/dsh-agent-preset/package.json; do
+  if [ -f "${candidate}" ]; then PRESET_ROW="${candidate}"; break; fi
+done
+
+if [ -z "${PRESET_ROW}" ]; then
+  echo "  [fail] dsh is too old for this preset: no @deepseek-ai/dsh-agent-preset installed."
+  echo "         A preset is that plugin's row, and dsh ships it only from 0.1.7-alpha.1."
+  echo "         Nothing was written. Upgrade, then re-run this script:"
+  echo "           pnpm add -g @deepseek-ai/dsh@latest"
+  exit 1
+fi
+
 # ── 1) Rebuild the preset recipe for THIS dsh version ────────────────────────
 BASE="${PRESET_DIR}/stock-baseline.agent.cordis.yml"
 PATCH="${PRESET_DIR}/agent.cordis.patch"
