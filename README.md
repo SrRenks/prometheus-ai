@@ -98,9 +98,17 @@ match on another machine:
 
 ```
 dsh                      0.2.0-rc.2
-dsh-unrestricted-renks   de422de   0.2.1-renks.1
+dsh-unrestricted-renks   v0.2.2-renks.1   (tag on that repo; 0.1.9 is the floor)
 prometheus-ai            this commit
 ```
+
+That floor is worth stating because it was a real failure. `dsh-unrestricted` up to
+v0.1.8 calls `ctx.settings.register`, which cordis 4.0.4 does not have, so an older
+tag installs cleanly and then fails to activate with `TypeError:
+ctx.settings.register is not a function`. v0.1.9 replaced it with
+`ctx.settings.configure`. Anything before that cannot run on dsh 0.2.0, and the
+only published tag on that repository was v0.1.4-renks.1 until v0.2.2-renks.1 was
+cut.
 
 `install.sh` completes step 4 for you when a profile already names
 `dsh-unrestricted`, which is the marker that separates this setup's profiles from
