@@ -73,6 +73,16 @@ repositories, because this config is not the whole system.
 | 1 | install dsh itself | the runtime, and the stock recipe `install.sh` reads |
 | 2 | clone this repo, run `setup.sh` | harness bridges, git identity include |
 | 3 | `bash agents/dsh/install.sh` | the `renks` preset, and the 0.2.0 bundle at `~/dsh-user-presets` |
+
+One constraint is worth knowing before you add a second preset: the bundle
+declares `dsh.bundle.patch` as a **single path**, and the builder refuses to emit
+more than one. dsh 0.2.0 accepts a path or a list, but dsh 0.1.2 reads the field
+with no type check and hands it to `path.join`, so a list throws
+`ERR_INVALID_ARG_TYPE` before any profile loads and `dsh web` will not start.
+That is what a one-element list in this manifest did on a second machine running
+0.1.2-rc.1, and `tools/verify-bundle-manifest.mjs` reproduces both loaders so it
+cannot come back. `dsh-unrestricted` has always declared a single path for the
+same reason.
 | 4 | clone `dsh-unrestricted-renks`, edit the profile's `package.json` | the toggleable unrestricted plugin, mounted |
 | 5 | `pnpm install` in the profile, start a new session | the profile reads both bundles |
 

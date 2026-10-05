@@ -212,6 +212,46 @@ if (removed.length > 0) {
   console.error('  (a new session stops mounting it; the preset itself is untouched)')
 }
 
+/**
+ * The value for `dsh.bundle.patch`, as a SINGLE PATH rather than a list.
+ *
+ * WHY THIS IS ONE STRING AND NOT AN ARRAY OF ONE. dsh 0.2.0 accepts both:
+ *
+ *   const declared = typeof bundle.patch === "string" ? [bundle.patch] : bundle.patch
+ *
+ * but dsh 0.1.2 reads the field with no type check at all and goes straight to
+ * `path.join(packageDir, declared)`, so an array reaches Node's `join` and throws
+ * `ERR_INVALID_ARG_TYPE: The "path" argument must be of type string. Received an
+ * instance of Array` before any profile loads. That is exactly how `dsh web` died
+ * on a second machine running 0.1.2-rc.1, and the array was this line.
+ *
+ * A single path is the one form both versions read, so this bundle works on the
+ * oldest dsh it might meet instead of only the newest. More than one preset would
+ * need the list form and would break 0.1.2, so that is a hard error here rather
+ * than a manifest that fails on somebody else's machine later.
+ *
+ * @param ids - the preset ids that were built.
+ * @returns the `dsh.bundle.patch` value.
+ */
+function patchField(ids) {
+  if (ids.length !== 1) {
+    throw new Error(
+      `dsh 0.1.2 reads dsh.bundle.patch as a single path, so the bundle can carry exactly one preset; got ${ids.length}. ` +
+      'Splitting them across bundles keeps the older dsh working.',
+    )
+  }
+  return `./presets/${ids[0]}.patch.yml`
+}
+
+if (built.length === 0) {
+  console.error('no preset was built: install one with agents/dsh/install.sh first')
+  process.exit(1)
+}
+
+// Computed before the write, so an unsupported preset count fails without
+// leaving a half-written manifest behind.
+const patch = patchField(built)
+
 await writeFile(join(out, 'package.json'), `${JSON.stringify({
   name: BUNDLE,
   version: '1.0.0',
@@ -224,13 +264,8 @@ await writeFile(join(out, 'package.json'), `${JSON.stringify({
     './presets/*': './presets/*',
   },
   files: ['presets', 'helpers', 'README.md'],
-  dsh: { bundle: { patch: built.map(id => `./presets/${id}.patch.yml`) } },
+  dsh: { bundle: { patch } },
 }, null, 2)}\n`)
-
-if (built.length === 0) {
-  console.error('no preset was built: install one with agents/dsh/install.sh first')
-  process.exit(1)
-}
 
 console.log(`\nbundle at ${out}`)
 console.log(`patches: ${built.map(id => `presets/${id}.patch.yml`).join(', ') || '(none)'}`)
