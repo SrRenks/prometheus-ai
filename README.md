@@ -102,6 +102,20 @@ dsh-unrestricted-renks   v0.2.2-renks.1   (tag on that repo; 0.1.9 is the floor)
 prometheus-ai            this commit
 ```
 
+THE FLOOR APPLIES TO EVERY PROFILE, the TUI included. It is tempting to read an
+old pin on `dsh-tui` as deliberate, on the theory that the TUI runs its own
+runtime with a different adapter. It does not: `@deepseek-harness-tui/dsh-tui`
+0.12.0 declares `@deepseek-ai/cordis` `^4.0.1` as a peer and both profiles resolve
+the same cordis 4.0.4 with the same `dsh-settings`. That package's public service
+is `configure`, `get` and `update`; `register` is not in it, so an old
+`dsh-unrestricted` fails identically in either profile. A TUI pin below 0.1.9 is a
+stale dependency, not a decision, and both profiles take the same version.
+
+WHY v0.2.2-renks.1 AND NOT v0.2.1-renks.1: the published tag of that name is the
+older code, kept so anyone who pinned it keeps getting what they pinned. The 0.2.2
+tag carries the renks preset port for dsh 0.2.1 plus the drift guard that follows
+the preset into the 0.2.0 bundle layout.
+
 That floor is worth stating because it was a real failure. `dsh-unrestricted` up to
 v0.1.8 calls `ctx.settings.register`, which cordis 4.0.4 does not have, so an older
 tag installs cleanly and then fails to activate with `TypeError:

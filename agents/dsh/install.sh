@@ -17,20 +17,18 @@ DSH_H="${DSH_HOME:-${HOME}/.dsh}"
 PRESET_DIR="${SRC}/presets/renks"
 BUILDER="${REPO}/tools/build-preset-recipe.mjs"
 
-# The stock `standard` recipe ships in the PROFILE's node_modules, not in the
-# shared profiles root, and which profile exists is machine-specific. Probing
-# every profile keeps this working when the active one changes (web <-> tui <-> a
-# rescue profile) instead of failing on a path that looked right once.
-# `profiles/*/node_modules` covers a profile with its own copy; the shared
-# `profiles/node_modules` covers a hoisted install, which is where the package
-# actually lives on at least one machine this has run on. Probing only the first
-# reported a false "no stock preset" and left STOCK empty.
+# The stock recipe is resolved by `tools/build-preset-recipe.mjs`, NOT here.
+# This script used to probe for it with its own hard-coded paths, and that probe
+# assumed the pre-0.2.0 layout: a directory preset under `profiles/**/node_modules/
+# @deepseek-ai/dsh-agent-presets/`. dsh 0.2.0 ships its presets as loader patch
+# files inside its own installation, so the probe found nothing on every run,
+# STOCK stayed empty, and this installer silently fell through to the fallback
+# recipe every time. The merge path never executed and nothing said so.
+#
+# Keeping one resolver matters beyond tidiness: two lookups that disagree make the
+# baseline match a recipe the running dsh does not use. The file is produced in
+# step 1, which is the first place with a scratch directory to write it to.
 STOCK=""
-for candidate in \
-  "${DSH_H}"/profiles/*/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml \
-  "${DSH_H}"/profiles/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml; do
-  if [ -f "${candidate}" ]; then STOCK="${candidate}"; break; fi
-done
 
 # Directory that can `require('yaml')`, for the recipe sanity gate.
 YAML_DIR=""
@@ -122,12 +120,26 @@ WORK="$(mktemp -d)"; trap 'rm -rf "${WORK}"' EXIT
 RESULT="${WORK}/agent.cordis.yml"
 STATUS="merged"
 
-if [ -z "${STOCK}" ] || [ ! -f "${STOCK}" ]; then
-  echo "  [warn] no installed stock preset under ${DSH_H}/profiles/node_modules or"
-  echo "         ${DSH_H}/profiles/*/node_modules. Installing the last-known-good"
-  echo "         recipe; re-run after dsh is installed to rebuild against the"
-  echo "         version actually present."
+# Ask the tool where the stock recipe is and what shape it takes. It probes the
+# legacy directory layout first and falls back to the shipped patch file inside
+# the dsh installation, extracting the plugin list, so this script never needs to
+# know which layout is installed.
+STOCK="${WORK}/stock.yml"
+BUILDER_TOOL="${REPO}/tools/build-preset-recipe.mjs"
+if [ -f "${BUILDER_TOOL}" ] && command -v node >/dev/null 2>&1; then
+  if ! node "${BUILDER_TOOL}" --print-stock "${STOCK}" >"${WORK}/print-stock.json" 2>&1; then
+    echo "  [warn] the stock recipe could not be resolved:"
+    sed 's/^/         /' "${WORK}/print-stock.json" | head -5
+    STOCK=""
+  fi
+else
+  echo "  [warn] no ${BUILDER_TOOL}, so the stock recipe cannot be resolved."
   STOCK=""
+fi
+if [ -n "${STOCK}" ] && [ ! -s "${STOCK}" ]; then STOCK=""; fi
+if [ -z "${STOCK}" ]; then
+  echo "  [warn] installing the last-known-good recipe instead. The merge path is"
+  echo "         skipped, so re-run once dsh is installed and resolvable."
 fi
 
 # Rebuild the recipe from the frozen baseline + your patch, then 3-way merge it

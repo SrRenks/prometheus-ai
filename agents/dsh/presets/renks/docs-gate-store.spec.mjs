@@ -11,7 +11,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { createLedger, fingerprint } from './docs-gate-credit.mjs'
 import { loadStore, recordRead, seedLedger, storeEnabled, storeExists, storeHolds } from './docs-gate-store.mjs'
@@ -127,8 +128,16 @@ test('the plugin writes the store when a read succeeds and the switch is on', as
   // The end-to-end case the unit tests above cannot cover, and the gap that let a
   // renamed method sit in the plugin: `store.creditStore()` no longer existed, no
   // test mounted the plugin with the store configured, and the suite stayed green.
+  //
+  // The repository root is DERIVED, not written out. A literal `/home/renks` here
+  // made the test pass only on a machine whose home is that, which is the same
+  // shape of defect as a check that looks somewhere nothing happens.
   const { apply } = await import('./docs-gate.mjs')
   const { stat, readFile } = await import('node:fs/promises')
+  // Four levels up: this file lives at agents/dsh/presets/renks/, so three would
+  // land on `agents/` and the doc probe would look for a path that does not exist.
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..')
+  const docPath = join(repoRoot, 'core/principles.md')
   const path = tempPath()
 
   const service = {
@@ -146,9 +155,13 @@ test('the plugin writes the store when a read succeeds and the switch is on', as
     logger: { warn: () => {} },
     on: (name, fn) => listeners.set(name, [...(listeners.get(name) ?? []), fn]),
     get: (name) => (name === 'fs' ? service : undefined),
-  }, { repoRoots: ['/home/renks/.config/agent-config'], creditStore: path })
+  }, { repoRoots: [repoRoot], creditStore: path })
 
-  const agent = { session: { id: 'store-e2e', header: { cwd: '/home/renks/Projects' } }, parentAgent: undefined }
+  // The workspace is the repository itself, derived rather than written out. An
+  // earlier version pointed this at the home directory by literal path and at
+  // tmpdir() when that was removed; both were guesses about a machine rather than
+  // a fact about the checkout.
+  const agent = { session: { id: 'store-e2e', header: { cwd: repoRoot } }, parentAgent: undefined }
   const call = async (exec) => {
     let index = -1
     const next = async () => {
@@ -159,7 +172,7 @@ test('the plugin writes the store when a read succeeds and the switch is on', as
     return next()
   }
 
-  const read = await call({ name: 'read', arguments: { file_path: '/home/renks/.config/agent-config/core/principles.md' } })
+  const read = await call({ name: 'read', arguments: { file_path: docPath } })
   assert.equal(read.kind, 'allow', 'reading is never blocked')
   assert.equal(storeExists(path), true, 'a successful read is written to the store')
 
@@ -168,7 +181,7 @@ test('the plugin writes the store when a read succeeds and the switch is on', as
   assert.ok(store.principles !== undefined, 'the document is recorded by id')
   const ledger = createLedger()
   const seeded = await seedLedger(path, {
-    readText: () => readFile('/home/renks/.config/agent-config/core/principles.md', 'utf8'),
-  }, [{ id: 'principles', path: '/home/renks/.config/agent-config/core/principles.md' }], ledger)
+    readText: () => readFile(docPath, 'utf8'),
+  }, [{ id: 'principles', path: docPath }], ledger)
   assert.deepEqual(seeded, ['principles'], 'a later session can reuse it')
 })

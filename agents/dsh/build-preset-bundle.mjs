@@ -161,7 +161,10 @@ async function buildPatch(presetId, dshHome) {
     '        plugins:',
   ].join('\n')
 
-  return `${head}\n${indentPlugins(composition, presetId)}\n`
+  // The patch alone is not enough for the caller: `indentPlugins` rewrites the
+  // helper references, so the list of what the recipe reaches is only readable
+  // from the composition. Returning both keeps one read of the file.
+  return { patch: `${head}\n${indentPlugins(composition, presetId)}\n`, referenced: referencedHelpers(composition) }
 }
 
 const { out, dshHome } = parseArgs()
@@ -184,15 +187,31 @@ for (const presetId of PRESETS) {
     continue
   }
 
-  await writeFile(join(out, 'presets', `${presetId}.patch.yml`), await buildPatch(presetId, dshHome))
+  const { patch, referenced } = await buildPatch(presetId, dshHome)
+  await writeFile(join(out, 'presets', `${presetId}.patch.yml`), patch)
   built.push(presetId)
+
+  // Only what the recipe reaches: the modules it names plus their relative
+  // imports. A stale module in the installed directory can no longer ride along.
+  const reachable = await reachableModules(dir, referenced)
+  if (reachable.error !== undefined) {
+    console.error(`skip ${presetId}: ${reachable.error}`)
+    continue
+  }
 
   const helperDir = join(out, 'helpers', presetId)
   await mkdir(helperDir, { recursive: true })
-  for (const entry of await readdir(dir)) {
-    if (!entry.endsWith('.mjs')) continue
-    await cp(join(dir, entry), join(helperDir, entry))
-    copied.push(`helpers/${presetId}/${entry}`)
+  // Remove what an earlier run left, so a module dropped from the closure stops
+  // shipping instead of being inherited by the next sync.
+  for (const entry of await readdir(helperDir)) {
+    if (entry.endsWith('.mjs') && !reachable.names.includes(entry)) {
+      await rm(join(helperDir, entry))
+      console.error(`pruned stale helper ${entry} from ${presetId}`)
+    }
+  }
+  for (const name of reachable.names) {
+    await cp(join(dir, name), join(helperDir, name))
+    copied.push(`helpers/${presetId}/${name}`)
   }
   console.log(`built preset ${presetId}`)
 }
@@ -210,6 +229,60 @@ for (const entry of await readdir(join(out, 'presets'))) {
 for (const id of removed) console.error(`pruned stale preset ${id} from the bundle`)
 if (removed.length > 0) {
   console.error('  (a new session stops mounting it; the preset itself is untouched)')
+}
+
+/**
+ * Every `.mjs` the recipe can actually reach, following relative imports.
+ *
+ * WHY NOT "copy them all". The old loop copied every `.mjs` from the installed
+ * preset directory. That is how two modules of a plugin deleted on 2026-10-02,
+ * `instruction-hint.mjs` and `compaction-epoch.mjs`, kept travelling into the
+ * bundle and into both profiles' `node_modules`: deleting them from the repo and
+ * from the recipe did not remove the copies, so the copy step carried them
+ * forward on every run. Nothing read them, and nothing said so.
+ *
+ * Direct references alone would be too narrow: `docs-gate.mjs` imports five
+ * sibling modules, so copying only what the recipe names would ship a bundle that
+ * fails at load. The closure is the honest set, and it also fails loudly rather
+ * than silently if a reference cannot be resolved.
+ *
+ * @param dir - the installed preset directory.
+ * @param entryNames - module names the recipe references.
+ * @returns `{ names }`, or `{ error }` naming the unresolved reference.
+ */
+async function reachableModules(dir, entryNames) {
+  const seen = new Set()
+  const queue = [...entryNames]
+  while (queue.length > 0) {
+    const name = queue.shift()
+    if (seen.has(name)) continue
+    const path = join(dir, name)
+    if (!existsSync(path)) {
+      return { error: `${name} is referenced but not present in ${dir}` }
+    }
+    seen.add(name)
+    const source = await readFile(path, 'utf8')
+    for (const match of source.matchAll(/from\s+'\.\/([\w.-]+\.mjs)'/g)) queue.push(match[1])
+  }
+  return { names: [...seen].sort() }
+}
+
+/**
+ * The relative helper modules a composition references.
+ *
+ * Read from the INSTALLED COMPOSITION, not from the generated patch:
+ * `indentPlugins` rewrites `name: ./x.mjs` into the bundle's own subpath before
+ * the patch is written, so the patch no longer holds a relative reference to
+ * match on. This first version read the patch and found nothing, which produced a
+ * bundle with zero helpers, so the check is against the file that still has them.
+ *
+ * @param composition - the preset's `agent.cordis.yml`.
+ * @returns the referenced module names.
+ */
+function referencedHelpers(composition) {
+  const names = new Set()
+  for (const match of composition.matchAll(/name:\s*\.\/([\w.-]+\.mjs)/g)) names.add(match[1])
+  return [...names]
 }
 
 /**

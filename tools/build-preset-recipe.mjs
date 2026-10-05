@@ -18,14 +18,17 @@
  *   4. verifies the patch round-trips and that a simulated 3-way merge (the
  *      exact operation `install.sh` performs) produces no conflict.
  *
- * Usage: node tools/build-preset-recipe.mjs [--check]
- *   --check  verify only; write nothing and exit non-zero on drift
+ * Usage: node tools/build-preset-recipe.mjs [--check] [--print-stock <file>]
+ *   --check              verify only; write nothing and exit non-zero on drift
+ *   --print-stock <file> write the resolved stock recipe and stop, for install.sh
  */
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+
+import { resolveStock } from './stock-recipe.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '..')
@@ -73,13 +76,17 @@ const HINT_BLOCK = `# Instruction delivery — evidence-based (2026-09 config re
 # the agent to read them at session start.
 `
 
-/** The stock skill block, replaced by the on-demand search/load pair. */
-const STOCK_SKILL_OLD = `# \`skill-filesystem\` contributes local-root discovery for agents on this preset, and
-# \`tool-skill\` gives them the catalog and loader; the merged catalog also
-# carries whatever the deployment registered globally (repository plugins).
-- id: skill-filesystem
+/**
+ * The stock skill pair, replaced by the on-demand search/load pair.
+ *
+ * ANCHORED ON THE ROWS, NOT ON A COMMENT. The 0.2.0 shipped preset is machine
+ * generated and carries no comments at all, so the block this edit used to match
+ * (the prose above `skill-filesystem`) does not exist there and the edit matched
+ * zero times. Rows are what upstream actually ships and what a version bump is
+ * least likely to reword.
+ */
+const STOCK_SKILL_OLD = `- id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
-
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 `
@@ -92,13 +99,23 @@ const SKILL_NEW = `# \`skill-filesystem\` contributes local-root discovery for a
 # full instructions) — the tool-search pattern. Scale policy: search/load
 # remains the right default as the catalog grows; do not re-add catalog
 # injection beyond ~3-5 skills.
+#
+# The skill REGISTRY lives in the host composition and is layered per scope:
+# these rows register into THIS preset's layer of it, so they need no realm.
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
-
 - id: skill-search
   name: ./skill-search.mjs
 `
 
+/**
+ * The note added above the nested `plan-mode` row.
+ *
+ * This one is an INSERT, not a replacement. `plan-mode` is not a top-level row:
+ * it sits inside the `planning` group's `config`, indented four spaces, and the
+ * comment that used to precede it upstream is gone. Inserting the note keeps the
+ * explanation attached to the row and leaves the group's own text untouched.
+ */
 const PLAN_NOTE = `# NOTE: this \`section\` is duplicated byte-identical in the liangshen preset —
 # keep BOTH copies in sync on any edit (shared-include support is not
 # available in preset compositions).
@@ -107,8 +124,7 @@ const PLAN_NOTE = `# NOTE: this \`section\` is duplicated byte-identical in the 
 # workaround here — it is the correct lifetime.
 `
 
-const PLAN_ANCHOR = `# Plan state is per-agent by nature, so an entry-local realm is not a
-# workaround here — it is the correct lifetime.
+const PLAN_ANCHOR = `    - id: plan-mode
 `
 
 const WEB_NOTE = `# fetch stays ENABLED in this default preset; liangshen (experimental minimal
@@ -120,11 +136,18 @@ const WEB_NOTE = `# fetch stays ENABLED in this default preset; liangshen (exper
 const WEB_ANCHOR = `- id: tool-web
 `
 
-/** Patches this preset applies to the stock recipe, in application order. */
+/**
+ * Patches this preset applies to the stock recipe, in application order.
+ *
+ * Two kinds. `old`/`new` replaces a block the stock still ships. `before` inserts
+ * text ahead of an anchor and keeps it, which is what a note added to a row that
+ * has no comment of its own needs; re-indenting to the anchor's own depth happens
+ * in `applyEdits`, so a nested row does not get a top-level comment above it.
+ */
 const EDITS = [
   { id: 'instructions -> docs-gate', old: STOCK_INSTRUCTIONS_OLD, new: `${HINT_BLOCK}${GATE_ROW_REPLACEMENT}` },
   { id: 'skill catalog -> search/load', old: STOCK_SKILL_OLD, new: SKILL_NEW },
-  { id: 'plan-mode note', old: PLAN_ANCHOR, new: PLAN_NOTE },
+  { id: 'plan-mode note', before: PLAN_ANCHOR, text: PLAN_NOTE },
   { id: 'web-fetch note', old: WEB_ANCHOR, new: WEB_NOTE },
 ]
 
@@ -140,33 +163,22 @@ function occurrences(haystack, needle) {
 }
 
 /**
- * Locate the installed `standard` preset recipe.
+ * Re-indent a block so its own lines sit at the anchor's depth.
  *
- * `install.sh` used to hard-code `$DSH_HOME/profiles/node_modules/...`, a path
- * that only exists when the shared profile root happens to carry the plugin
- * bundle. The recipe really lives in the active profile's own `node_modules`,
- * so every candidate is probed and the first real file wins.
+ * A note written at column 0 is correct for a top-level row and wrong for a row
+ * nested inside a group, where a column-0 comment between indented siblings reads
+ * as though it belonged to something else. Blank lines stay blank.
  *
- * @param dshHome - the dsh home directory.
- * @returns the absolute path to the stock recipe.
+ * @param text - the note.
+ * @param indent - the leading whitespace to apply.
+ * @returns the note, indented.
  */
-function findStockRecipe(dshHome) {
-  const suffix = join('@deepseek-ai', 'dsh-agent-presets', 'presets', 'standard', 'agent.cordis.yml')
-  const candidates = []
-  const profileNames = []
-  const profilesDir = join(dshHome, 'profiles')
-  if (existsSync(profilesDir)) {
-    for (const entry of readdirSync(profilesDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      profileNames.push(entry.name)
-      candidates.push(join(profilesDir, entry.name, 'node_modules', suffix))
-    }
-  }
-  candidates.push(join(profilesDir, 'node_modules', suffix))
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate
-  }
-  return undefined
+function reindent(text, indent) {
+  if (indent.length === 0) return text
+  return text
+    .split('\n')
+    .map(line => (line.trim().length === 0 ? line : `${indent}${line}`))
+    .join('\n')
 }
 
 /**
@@ -179,14 +191,22 @@ function findStockRecipe(dshHome) {
 function applyEdits(stock, stockPath) {
   let target = stock
   for (const edit of EDITS) {
-    const count = occurrences(target, edit.old)
+    // An insert keeps the anchor and puts the note in front of it, re-indented to
+    // the anchor's own depth. A replacement swaps the block outright.
+    const needle = edit.before ?? edit.old
+    const count = occurrences(target, needle)
     if (count !== 1) {
       return {
         error: `edit "${edit.id}" matched ${count} times in ${stockPath}; upstream changed that block`,
         hint: 'update the edit block in this script, then re-run',
       }
     }
-    target = target.replace(edit.old, edit.new)
+    if (edit.before !== undefined) {
+      const lead = /^[ \t]*/.exec(edit.before)[0]
+      target = target.replace(edit.before, `${reindent(edit.text, lead)}${edit.before}`)
+    } else {
+      target = target.replace(edit.old, edit.new)
+    }
   }
   const gateRows = occurrences(target, '- id: docs-gate')
   const stockRows = occurrences(target, '- id: agent-instructions')
@@ -285,11 +305,24 @@ function verifyPatch(work, stock, target, patch) {
 
 function main() {
   const dshHome = process.env.DSH_HOME ?? join(process.env.HOME ?? '', '.dsh')
-  const stockPath = findStockRecipe(dshHome)
-  if (stockPath === undefined) {
-    return finish({ error: `no installed 'standard' preset found under ${join(dshHome, 'profiles')}/*/node_modules` })
+  const resolved = resolveStock({ dshHome })
+  if (resolved.error !== undefined) return finish(resolved)
+
+  const stock = resolved.text
+  const stockPath = resolved.path
+
+  // `--print-stock <file>` writes the resolved stock and stops. `install.sh`
+  // consumes it instead of probing for the recipe itself, so the lookup and the
+  // extraction live in one place rather than in two that can disagree.
+  const printAt = process.argv.indexOf('--print-stock')
+  if (printAt >= 0) {
+    const destination = process.argv[printAt + 1]
+    if (destination === undefined || destination.startsWith('--')) {
+      return finish({ error: '--print-stock needs an output path' })
+    }
+    writeFileSync(destination, stock)
+    return finish({ ok: true, layout: resolved.layout, stockPath, bytes: stock.length, wrote: destination })
   }
-  const stock = readFileSync(stockPath, 'utf8')
 
   const edited = applyEdits(stock, stockPath)
   if (edited.error !== undefined) return finish(edited)

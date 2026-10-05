@@ -1,9 +1,9 @@
 --- a/agent.cordis.yml
 +++ b/agent.cordis.yml
-@@ -28,10 +28,27 @@
-     prefix: >-
-       You are a coding agent powered by the {{model}} model.
- 
+@@ -3,10 +3,27 @@
+   config:
+     suffix: Your working directory is {{cwd}}.
+     prefix: You are a coding agent powered by the {{model}} model.
 -- id: agent-instructions
 -  name: '@deepseek-ai/dsh-agent-instructions'
 -  config:
@@ -29,16 +29,13 @@
 +# `agents/dsh/presets/renks/docs-gate.spec.mjs` is its test suite.
 +- id: docs-gate
 +  name: ./docs-gate.mjs
- 
- # ── shell ───────────────────────────────────────────────────────────────────
- 
-@@ -78,14 +95,19 @@
- 
- # The skill REGISTRY lives in the host composition and is layered per scope:
- # these rows register into THIS preset's layer of it, so they need no realm.
--# `skill-filesystem` contributes local-root discovery for agents on this preset, and
--# `tool-skill` gives them the catalog and loader; the merged catalog also
--# carries whatever the deployment registered globally (repository plugins).
+ - id: tool-bash
+   name: '@deepseek-ai/dsh-tool-bash'
+   disabled: !!js process.platform === 'win32'
+@@ -21,10 +38,21 @@
+     sampleOverCapGlobResults: false
+ - id: tool-jobs
+   name: '@deepseek-ai/dsh-tool-jobs'
 +# `skill-filesystem` contributes local-root discovery for agents on this preset.
 +# The full skill-catalog injection (`dsh-tool-skill`'s ~9KB `<available_skills>`
 +# reminder) is REMOVED (evidence-based, see the identity section). Instead
@@ -47,31 +44,35 @@
 +# full instructions) — the tool-search pattern. Scale policy: search/load
 +# remains the right default as the catalog grows; do not re-add catalog
 +# injection beyond ~3-5 skills.
++#
++# The skill REGISTRY lives in the host composition and is layered per scope:
++# these rows register into THIS preset's layer of it, so they need no realm.
  - id: skill-filesystem
    name: '@deepseek-ai/dsh-skill-filesystem'
- 
 -- id: tool-skill
 -  name: '@deepseek-ai/dsh-tool-skill'
 +- id: skill-search
 +  name: ./skill-search.mjs
- 
- # ── goals ───────────────────────────────────────────────────────────────────
- 
-@@ -100,6 +122,10 @@
- 
- # ── plan mode ───────────────────────────────────────────────────────────────
- 
-+# NOTE: this `section` is duplicated byte-identical in the liangshen preset —
-+# keep BOTH copies in sync on any edit (shared-include support is not
-+# available in preset compositions).
-+#
- # Plan state is per-agent by nature, so an entry-local realm is not a
- # workaround here — it is the correct lifetime.
- - id: planning
-@@ -252,6 +278,9 @@
- 
- # The `web` service and its search provider stay in the host composition; only
- # the model-facing tool is per-session.
+ - id: command-goal
+   name: '@deepseek-ai/dsh-command-goal'
+ - id: tool-goal
+@@ -35,6 +63,12 @@
+   isolate:
+     planMode: true
+   config:
++    # NOTE: this `section` is duplicated byte-identical in the liangshen preset —
++    # keep BOTH copies in sync on any edit (shared-include support is not
++    # available in preset compositions).
++    #
++    # Plan state is per-agent by nature, so an entry-local realm is not a
++    # workaround here — it is the correct lifetime.
+     - id: plan-mode
+       name: '@deepseek-ai/dsh-plan-mode'
+       config:
+@@ -119,6 +153,9 @@
+   name: '@deepseek-ai/dsh-tool-todo'
+   config:
+     allowParallelInProgress: true
 +# fetch stays ENABLED in this default preset; liangshen (experimental minimal
 +# preset) deliberately disables it. If the policies must match, change BOTH
 +# copies of both presets.
