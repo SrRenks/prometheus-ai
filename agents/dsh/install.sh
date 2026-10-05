@@ -52,11 +52,59 @@ echo "  dsh home : ${DSH_H}"
 #
 # which names the symptom and not the cause. Checking here turns a dead launcher
 # into one actionable line. Probed from the installed tree, so no network.
+#
+# The profile trees are asked first, because an older dsh hoisted its
+# dependencies into them. They are not sufficient on their own: a profile holds
+# only what it declares, and this setup declares two local bundles, so on a
+# healthy 0.2.0-rc.2 machine with no @deepseek-ai/* in the profiles both probes
+# find nothing. Measured 2026-10-05, which is how this guard came to refuse an
+# install on a working dsh. A preset row is resolved by dsh from its OWN install
+# tree, and that tree is also the honest answer to the question the guard asks:
+# an old dsh does not ship that package anywhere, a current one always does.
 PRESET_ROW=""
 for candidate in "${DSH_H}"/profiles/*/node_modules/@deepseek-ai/dsh-agent-preset/package.json \
                  "${DSH_H}"/profiles/node_modules/@deepseek-ai/dsh-agent-preset/package.json; do
   if [ -f "${candidate}" ]; then PRESET_ROW="${candidate}"; break; fi
 done
+
+if [ -z "${PRESET_ROW}" ]; then
+  # A pnpm launcher is a shell shim whose last line names the CLI entry; an npm
+  # one is a symlink to it. Whichever is found, node then resolves the package
+  # the way dsh does - from that entry's own tree.
+  DSH_SHIM="$(command -v dsh 2>/dev/null || true)"
+  DSH_ENTRY=""
+  if [ -n "${DSH_SHIM}" ] && [ -f "${DSH_SHIM}" ]; then
+    # Each probe carries `|| true`: under `set -o pipefail` an assignment whose
+    # substitution fails ends the script on the spot, which would trade this
+    # guard's one actionable line for no output at all.
+    DSH_ENTRY="$(sed -n 's/^# cmd-shim-target=//p' "${DSH_SHIM}" | tail -1 || true)"
+    if [ ! -f "${DSH_ENTRY}" ]; then
+      # One level is enough: a launcher links straight at the CLI entry.
+      # `readlink -f` is GNU-only, so a relative target is joined here.
+      LINKED="$(readlink "${DSH_SHIM}" 2>/dev/null || true)"
+      case "${LINKED}" in
+        '') ;;
+        /*) DSH_ENTRY="${LINKED}" ;;
+        *) DSH_ENTRY="$(dirname "${DSH_SHIM}")/${LINKED}" ;;
+      esac
+    fi
+    if [ ! -f "${DSH_ENTRY}" ]; then
+      # A shim that only execs the entry inline: take the path it names. The
+      # match starts at the first `/`, so in a shim that writes
+      # `"$basedir/../global/..."` it comes out relative to the launcher.
+      DSH_ENTRY="$(grep -oE '/[^"[:space:]]*/lib/bin\.js' "${DSH_SHIM}" 2>/dev/null | head -1 || true)"
+      if [ -n "${DSH_ENTRY}" ] && [ ! -f "${DSH_ENTRY}" ]; then
+        DSH_ENTRY="$(dirname "${DSH_SHIM}")/${DSH_ENTRY}"
+      fi
+      [ -f "${DSH_ENTRY}" ] || DSH_ENTRY=""
+    fi
+  fi
+  # require.resolve, not import: the package only has to be reachable, and this
+  # runs before the builder does, on whatever node the machine has.
+  if [ -f "${DSH_ENTRY}" ] && command -v node >/dev/null 2>&1; then
+    PRESET_ROW="$(cd "$(dirname "${DSH_ENTRY}")" && node -e "const t=['@deepseek-ai/dsh-agent-preset/package.json','@deepseek-ai/dsh-agent-preset']; for (const s of t) { try { process.stdout.write(require.resolve(s)); break } catch {} }" 2>/dev/null || true)"
+  fi
+fi
 
 if [ -z "${PRESET_ROW}" ]; then
   echo "  [fail] dsh is too old for this preset: no @deepseek-ai/dsh-agent-preset installed."
@@ -183,25 +231,7 @@ ln -sfn "${REPO}/AGENTS.md" "${DSH_H}/AGENTS.md"
 ln -sfn "${REPO}/skills" "${DSH_H}/skills"
 echo "  [ok] symlinks: ${DSH_H}/AGENTS.md -> repo AGENTS.md ; ${DSH_H}/skills -> repo skills"
 
-# ── 4) Make renks the default preset for new sessions ────────────────────────
-# Append only, and back up first. This script has always appended, but the file
-# it appends to does not survive verbatim on its own: it was 82 bytes on
-# 2026-09-15 and contained one section, and on 2026-10-03 it contained only the
-# section this step adds. Whatever rewrote it kept nothing else, so the risk this
-# guards is not a bad append here - it is the NEXT rewrite discarding the preset
-# choice and this step then re-appending to a file that lost its other settings.
-SETTINGS="${DSH_H}/settings.yaml"
-if grep -q '^agent-presets:' "${SETTINGS}" 2>/dev/null; then
-  echo "  [skip] settings.yaml already has an agent-presets section"
-else
-  if [ -f "${SETTINGS}" ] && [ -s "${SETTINGS}" ]; then
-    cp "${SETTINGS}" "${SETTINGS}.bak-$(date +%Y%m%d%H%M%S)"
-  fi
-  printf '\nagent-presets:\n  default: renks\n' >> "${SETTINGS}"
-  echo "  [ok] settings.yaml: agent-presets.default = renks (previous content backed up if any)"
-fi
-
-# ── 5) Bundle the preset into the 0.2.0 format ──────────────────────────────
+# ── 4) Bundle the preset into the 0.2.0 format ──────────────────────────────
 # DSH 0.1.7 removed directory presets: nothing reads `.agent-presets/` any more.
 # A preset is now a row carried by a plugin bundle's patch file, installed into
 # the profile's node_modules. The builder converts what step 2 just wrote, so
@@ -226,7 +256,7 @@ else
   echo "  [skip] no bundle builder at ${SRC}/build-preset-bundle.mjs"
 fi
 
-# ── 6) Declare the bundle in each profile that already refers to it ─────────
+# ── 5) Declare the bundle in each profile that already refers to it ─────────
 # A profile mounts a bundle only when its package.json names it in BOTH the
 # dsh.profile.bundles array and dependencies, and a profile missing either half
 # loads nothing while reporting no error. The tool COMPLETES such a profile and
@@ -241,7 +271,7 @@ else
   echo "  [skip] no bundle at ${BUNDLE_OUT} to declare"
 fi
 
-# ── 7) Sync the bundle into every profile ───────────────────────────────────
+# ── 6) Sync the bundle into every profile ───────────────────────────────────
 # Rewriting the bundle is NOT enough, and the reason is a pnpm detail that is
 # invisible until a profile fails to pick up a change. The profiles use
 # `nodeLinker: hoisted`, so a `file:` dependency may land as a HARDLINK or as an
@@ -273,6 +303,79 @@ else
     fi
   done
 fi
+
+# ── 7) Make renks the default preset for new sessions ────────────────────────
+# This used to append `agent-presets: default: renks` to `$DSH_HOME/settings.yaml`.
+# That is a 0.1.x mechanism. dsh 0.2.0 imports the sections of that file into the
+# entry with the matching id and renames it to `settings.yaml.imported`, and no
+# entry is called `agent-presets` - the registry row is `agent-preset-registry`,
+# shipped with `default: standard`. So the section was dropped with a log warning
+# that nothing surfaced, and new sessions kept opening as the stock preset while
+# every step above reported success.
+#
+# The choice now goes where the running composition reads it: the profile's own
+# patch layer, which is applied after every bundle layer. Only a profile whose
+# composition HAS that entry can take it - the TUI profile runs its own preset
+# roster - and rather than guess from a package name this asks dsh for the
+# composed tree, which is the same tree a session mounts.
+for profile in "${DSH_H}"/profiles/*/; do
+  [ -f "${profile}package.json" ] || continue
+  grep -q 'dsh-user-presets' "${profile}package.json" 2>/dev/null || continue
+  name="$(basename "${profile}")"
+  PROFILE_PATCH="${profile}cordis.patch.yml"
+  if [ ! -f "${PROFILE_PATCH}" ]; then
+    echo "  [warn] '${name}': no cordis.patch.yml, so the default preset is unset"
+    continue
+  fi
+  if grep -q '^- id: agent-preset-registry' "${PROFILE_PATCH}"; then
+    echo "  [skip] '${name}': default preset already set in cordis.patch.yml"
+    continue
+  fi
+  if ! command -v dsh >/dev/null 2>&1; then
+    echo "  [warn] '${name}': dsh not on PATH, cannot read its composed entries"
+    continue
+  fi
+  # To a file, not into a pipe: `grep -q` stops at the first match, and under
+  # `set -o pipefail` the SIGPIPE that leaves behind would read as "no entry".
+  # The dump itself rewrites the profile's cordis.yml, which dsh normalises at
+  # every boot anyway.
+  COMPOSED="${WORK}/composed-${name}.yml"
+  if ! dsh --profile "${name}" --dump-config >"${COMPOSED}" 2>/dev/null; then
+    echo "  [warn] '${name}': dsh could not compose this profile; default preset unset"
+    continue
+  fi
+  if ! grep -q '^- id: agent-preset-registry' "${COMPOSED}"; then
+    echo "  [skip] '${name}': its composition has no agent-preset-registry entry"
+    continue
+  fi
+  # A default naming a preset that is not mounted turns every new session into a
+  # "no such preset" error at session creation, which is worse than leaving the
+  # stock default in place. The roster row comes from the bundle this run builds.
+  if ! grep -q '^- id: preset-renks' "${COMPOSED}"; then
+    echo "  [warn] '${name}': the renks preset is not mounted, leaving the default alone"
+    continue
+  fi
+  cp "${PROFILE_PATCH}" "${PROFILE_PATCH}.bak-$(date +%Y%m%d%H%M%S)-$$"
+  # An untouched patch layer is an empty list written as `[]`, and a block cannot
+  # be appended to that: the marker has to go first. `|| true` because a file
+  # holding nothing but the marker selects no lines, and grep calls that a
+  # failure - which `set -e` would turn into a silent stop mid-install.
+  if [ "$(grep -vE '^[[:space:]]*(#|$)' "${PROFILE_PATCH}" | tr -d '[:space:]')" = "[]" ]; then
+    { grep -vE '^[[:space:]]*\[[[:space:]]*\][[:space:]]*$' "${PROFILE_PATCH}" || true; } > "${PROFILE_PATCH}.new"
+    mv "${PROFILE_PATCH}.new" "${PROFILE_PATCH}"
+  fi
+  printf '\n# Renks is the default preset. A `settings.yaml` section is not read by\n# dsh 0.2.0; the registry row owns this choice.\n- id: agent-preset-registry\n  name: "@deepseek-ai/dsh-agent-preset-registry"\n  config:\n    default: renks\n' >> "${PROFILE_PATCH}"
+  # Writing is not mounting: a patch whose target id or name drifts is dropped by
+  # the loader with a warning and still exits 0, so the line a human reads has to
+  # come from the composed tree rather than from the append above.
+  AFTER="${COMPOSED%.yml}-after.yml"
+  if dsh --profile "${name}" --dump-config >"${AFTER}" 2>/dev/null \
+     && grep -A3 '^- id: agent-preset-registry' "${AFTER}" | grep -q 'default: renks'; then
+    echo "  [ok] '${name}': agent-preset-registry.default = renks (previous patch backed up)"
+  else
+    echo "  [warn] '${name}': wrote the override but the composed tree does not show it"
+  fi
+done
 
 echo ""
 echo "Done. Open a NEW dsh session: the modules are loaded at startup, so a"

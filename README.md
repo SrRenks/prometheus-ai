@@ -392,8 +392,11 @@ node tools/build-preset-recipe.mjs --check  # verify only; non-zero on drift
 `agents/dsh/install.sh` 3-way merges the patch onto whichever dsh version is
 installed, validates the YAML and the plugin rows, and installs the fallback only
 when even a regenerated patch cannot merge. It also links `~/.dsh/AGENTS.md` and
-`~/.dsh/skills` into this repo and sets `agent-presets.default: renks` in
-`~/.dsh/settings.yaml`. After a dsh upgrade:
+`~/.dsh/skills` into this repo and makes `renks` the default preset by writing
+`agent-preset-registry.default` into each profile's `cordis.patch.yml`. An earlier
+version wrote `agent-presets.default` into `~/.dsh/settings.yaml`; dsh 0.2.0
+imports that file's sections into the entry with the matching id and renames it,
+no entry carries that id, and the choice was dropped. After a dsh upgrade:
 
 ```bash
 git pull && bash agents/dsh/install.sh
