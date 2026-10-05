@@ -102,14 +102,26 @@ dsh-unrestricted-renks   v0.2.2-renks.1   (tag on that repo; 0.1.9 is the floor)
 prometheus-ai            this commit
 ```
 
-THE FLOOR APPLIES TO EVERY PROFILE, the TUI included. It is tempting to read an
-old pin on `dsh-tui` as deliberate, on the theory that the TUI runs its own
-runtime with a different adapter. It does not: `@deepseek-harness-tui/dsh-tui`
-0.12.0 declares `@deepseek-ai/cordis` `^4.0.1` as a peer and both profiles resolve
-the same cordis 4.0.4 with the same `dsh-settings`. That package's public service
-is `configure`, `get` and `update`; `register` is not in it, so an old
-`dsh-unrestricted` fails identically in either profile. A TUI pin below 0.1.9 is a
-stale dependency, not a decision, and both profiles take the same version.
+THE FLOOR APPLIES TO EVERY PROFILE, the TUI included, and `install.sh` checks it.
+An old pin on `dsh-tui` reads as deliberate, on the theory that the TUI runs its
+own runtime with a different adapter. It does not: both profiles boot the same dsh
+CLI, so their runtime comes from the CLI's install rather than from the profile,
+and `dsh-settings` offers `configure`, `get` and `update` with no `register` in
+either. A pin below 0.1.9 therefore installs in the TUI exactly as it installs in
+`web`, and then fails to activate.
+
+Step 8 runs `node tools/check-profile-deps.mjs`, which reads every profile that
+names the plugin and reports one below the floor. A `file:` pin carries no version,
+so the version is read from the package that spec points at; a spec naming no
+version that can be found is reported as unreadable rather than assumed good.
+
+WHAT THIS CLAIM RESTS ON, because it is not all the same strength. The settings
+service is the strong part: it is `dsh-settings` in the CLI's install, and the
+absence of `register` there was read from that package. The TUI's own peer range
+is not checked against a running TUI: the profile on this machine carries
+`@deepseek-harness-tui/dsh-tui` **0.12.0**, and no TUI session has ever been
+recorded, so nothing here observes the plugin loading under the TUI. What the
+check can say is what the pins are, which is the part that was silently wrong.
 
 WHY v0.2.2-renks.1 AND NOT v0.2.1-renks.1: the published tag of that name is the
 older code, kept so anyone who pinned it keeps getting what they pinned. The 0.2.2

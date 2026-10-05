@@ -236,7 +236,27 @@ for f in "${PRESET_DIR}"/*.mjs; do
   case "$f" in *.spec.mjs|*.testkit.mjs) continue ;; esac
   [ -e "$f" ] && cp -f "$f" "${DSH_H}/.agent-presets/renks/"
 done
-echo "  [ok] preset 'renks' installed at ${DSH_H}/.agent-presets/renks"
+
+# `cp -f` never removes, so a module this preset stopped naming stayed in the
+# directory forever and the bundle builder then carried it into every profile.
+# That is how two modules of a plugin deleted on 2026-10-02 kept travelling. The
+# builder prunes by the import closure now; this applies the same rule here, where
+# the copies are made, so the two cannot disagree about what belongs.
+INSTALLED_PRESET="${DSH_H}/.agent-presets/renks"
+if command -v node >/dev/null 2>&1; then
+  PRUNED="$(node -e "
+    const { pruneHelpers } = await import('${REPO}/tools/preset-helpers.mjs')
+    const { readFileSync } = await import('node:fs')
+    const dir = process.argv[1]
+    const composition = readFileSync(dir + '/agent.cordis.yml', 'utf8')
+    const { pruned, error } = await pruneHelpers(dir, composition)
+    if (error !== undefined) { process.stderr.write(error + '\n'); process.exit(0) }
+    process.stdout.write(pruned.join(' '))
+  " --input-type=module "${INSTALLED_PRESET}" 2>/dev/null || true)"
+  [ -n "${PRUNED}" ] && echo "  [ok] pruned unreferenced helpers: ${PRUNED}"
+fi
+
+echo "  [ok] preset 'renks' installed at ${INSTALLED_PRESET}"
 
 # ── 3) User-global rules + skills (symlinks: `git pull` updates propagate) ───
 ln -sfn "${REPO}/AGENTS.md" "${DSH_H}/AGENTS.md"
@@ -411,6 +431,20 @@ if [ -n "${pending}" ]; then
   echo "  \"dsh-user-presets\": \"file:${BUNDLE_OUT}\"   in dependencies, and"
   echo "  \"dsh-user-presets\"                           in dsh.profile.bundles"
 fi
+# ── 8) Report any profile pinned below the dsh-unrestricted floor ────────────
+# The README states this floor and nothing applied it, so a profile below it
+# installed without complaint and failed later at activation with an error that
+# reads as a plugin incompatible with dsh. Checking here moves the discovery from
+# a crash to the install that caused it.
+DEPS_CHECK="${REPO}/tools/check-profile-deps.mjs"
+if [ -f "${DEPS_CHECK}" ] && command -v node >/dev/null 2>&1; then
+  echo ""
+  if ! node "${DEPS_CHECK}" --dsh-home "${DSH_H}"; then
+    echo "  [warn] a profile above is below the floor; the plugin installs and then"
+    echo "         fails to activate. Nothing else in this run is affected."
+  fi
+fi
+
 echo ""
 echo "Re-run after every dsh update: it rebuilds the recipe against the installed"
 echo "version, re-bundles, and syncs every profile."
