@@ -21,6 +21,16 @@ install time from whatever dsh version is installed on the machine.
 The `.mjs` plugins import only each other, never dsh internals, so an
 upstream release does not break them.
 
+## Requirements
+
+`@deepseek-ai/dsh-agent-preset` arrived in dsh **0.1.7-alpha.1**, and this preset
+is one of its rows. On an older dsh the profile fails to start with `Cannot find
+package '@deepseek-ai/dsh-agent-preset'`, so `../install.sh` checks for the package
+and stops with the upgrade command instead of syncing a bundle that cannot load.
+
+There is no older-version fallback. dsh 0.1.2 dropped directory presets before it
+shipped the row that replaced them, so no configuration makes this work there.
+
 ## Regenerating the three generated files
 
 ```bash
