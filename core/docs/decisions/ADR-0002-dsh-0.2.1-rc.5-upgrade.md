@@ -1,6 +1,6 @@
 # ADR-0002: move to dsh 0.2.1-rc.5 with dsh-tui 0.18.0 and the rebased fork
 
-**Status**: Proposed
+**Status**: Accepted
 **Date**: 2026-11-05
 **Supersedes**: ADR-0001 (the decision to stay on 0.2.0-rc.2)
 
@@ -31,7 +31,10 @@ dsh-tui 0.18.0 declares support through 0.2.1-rc.5 and no further, so 0.2.1-rc.5
 
 ## Decision
 
-Adopt dsh 0.2.1-rc.5 with dsh-tui 0.18.0 and a fork rebased onto upstream v0.2.8, tagged `v0.2.8-renks.1`.
+Adopt the newest release of each part: dsh 0.2.2-rc.1, dsh-tui 0.18.0, and a fork rebased onto upstream
+v0.2.8, tagged `v0.2.8-renks.1`. The 0.2.1-rc.5 ceiling named below and in the title was the answer while
+the fork was stale; after the rebase 0.2.2-rc.1 installs and boots, and the only gap left is the peer
+declaration dsh-tui has not widened.
 
 The rebase is prepared at `~/dsh-unrestricted-renks-v028`, on branch `renks/0.2.8`, one commit on top of the `v0.2.8` tag. It carries the local delta only: `renks` in `PRESETS` and `PRESET_RULES`, a card row with its Chinese and English strings, the fork identity in `package.json`, standard-fixture replay cases under the `renks` preset id, and a drift guard rewritten for the by-name fusion. The suite passes with 37 tests, including the live-preset guard, and `npm run build` regenerates `lib/client.js`.
 
@@ -63,3 +66,15 @@ The gate keeps working through `tools/pre-execute`. What changes under it is onl
 - Upstream releases: https://github.com/yexi-by/dsh-unrestricted/releases
 - `ADR-0001-dsh-runtime-upgrade-gate.md` for the model-id findings, which still hold.
 - `tools/build-preset-recipe.mjs`, `agents/dsh/install.sh`.
+
+## Outcome
+
+Installed: dsh 0.2.2-rc.1, dsh-tui 0.18.0, fork v0.2.8-renks.1, preset regenerated against the 0.2.2-rc.1
+stock composition.
+
+Two things the plan did not anticipate. `pnpm add -g @deepseek-ai/dsh@0.2.2-rc.1` first failed with
+`No matching version found for @aws-sdk/token-providers@3.1161.0` despite the version being published; a
+retry with `--force` resolved it, so treat a bare `pnpm add -g` as retryable rather than fatal. And the
+global install replaces the pnpm group directory the running server booted from, so the shell tool of the
+live session dies the moment the install completes, before anything else can be done from inside. Any dsh
+version change has to be driven from a terminal, not from the agent's own shell.
