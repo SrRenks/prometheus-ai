@@ -78,3 +78,26 @@ retry with `--force` resolved it, so treat a bare `pnpm add -g` as retryable rat
 global install replaces the pnpm group directory the running server booted from, so the shell tool of the
 live session dies the moment the install completes, before anything else can be done from inside. Any dsh
 version change has to be driven from a terminal, not from the agent's own shell.
+
+dsh 0.2.2-rc.1 does not merely warn about dsh-tui's peer range: it skips the whole bundle and logs
+`Plugin @deepseek-harness-tui/dsh-tui@0.18.0 is incompatible with dsh 0.2.2-rc.1`. The TUI profile then
+composes 99 entries, all from `dsh-base`, with no TUI surface at all, which is a silent failure until
+something reads the composed tree.
+
+The exemption is stored per profile in `<profile>/compatibility.json`, not globally. Granting it through
+the Plugin Manager wrote it to the `web` profile, where it does nothing and hides the real state. The CLI
+is the honest path, and it is per profile:
+
+    dsh plugin --profile dsh-tui allow-version @deepseek-harness-tui/dsh-tui@0.18.0 \
+      --dsh-version 0.2.2-rc.1 --accept-risk
+
+With it the TUI profile composes 119 entries, including the `dsh-tui-*` rows, and the binary boots in a
+pty without an error for the full 15 seconds of the smoke window. The three patch warnings left are
+config-only rows whose ids 0.2.2 removed (`tool-ralph`, `tool-subagent-list-agents`) plus the fork's
+`connection` override, which the TUI composition never had a row for.
+
+The risk is real and was accepted explicitly for this exact pair: dsh-tui 0.18.0 was built and tested
+against 0.2.1-rc.5, and 0.2.2 removed packages its own shipped presets still name. If the TUI misbehaves,
+pin dsh to 0.2.1-rc.5 and re-run `agents/dsh/install.sh`, which regenerates the recipe for whatever dsh
+is installed.
+
