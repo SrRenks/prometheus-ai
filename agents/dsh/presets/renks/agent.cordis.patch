@@ -1,8 +1,8 @@
 --- a/agent.cordis.yml
 +++ b/agent.cordis.yml
-@@ -3,10 +3,27 @@
+@@ -2,10 +2,27 @@
+   name: '@deepseek-ai/dsh-persona'
    config:
-     suffix: Your working directory is {{cwd}}.
      prefix: You are a coding agent powered by the {{model}} model.
 -- id: agent-instructions
 -  name: '@deepseek-ai/dsh-agent-instructions'
@@ -29,13 +29,13 @@
 +# `agents/dsh/presets/renks/docs-gate.spec.mjs` is its test suite.
 +- id: docs-gate
 +  name: ./docs-gate.mjs
+ - id: time-context
+   name: '@deepseek-ai/dsh-time-context'
  - id: tool-bash
-   name: '@deepseek-ai/dsh-tool-bash'
-   disabled: !!js process.platform === 'win32'
-@@ -21,10 +38,21 @@
-     sampleOverCapGlobResults: false
- - id: tool-jobs
+@@ -27,10 +44,21 @@
    name: '@deepseek-ai/dsh-tool-jobs'
+ - id: tool-schedule
+   name: '@deepseek-ai/dsh-tool-schedule'
 +# `skill-filesystem` contributes local-root discovery for agents on this preset.
 +# The full skill-catalog injection (`dsh-tool-skill`'s ~9KB `<available_skills>`
 +# reminder) is REMOVED (evidence-based, see the identity section). Instead
@@ -56,7 +56,7 @@
  - id: command-goal
    name: '@deepseek-ai/dsh-command-goal'
  - id: tool-goal
-@@ -35,6 +63,12 @@
+@@ -41,6 +69,12 @@
    isolate:
      planMode: true
    config:
@@ -69,7 +69,7 @@
      - id: plan-mode
        name: '@deepseek-ai/dsh-plan-mode'
        config:
-@@ -119,6 +153,9 @@
+@@ -100,6 +134,9 @@
    name: '@deepseek-ai/dsh-tool-todo'
    config:
      allowParallelInProgress: true
