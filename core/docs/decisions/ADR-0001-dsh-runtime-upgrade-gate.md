@@ -1,7 +1,8 @@
 # ADR-0001: dsh runtime upgrade gate
 
-**Status**: Accepted
+**Status**: Superseded
 **Date**: 2026-11-05
+**Superseded by**: ADR-0002
 
 ## Context
 
