@@ -46,8 +46,8 @@ The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [Lice
 ## Install
 
 ```bash
-git clone git@github.com:SrRenks/prometheus-ai.git ~/.config/agent-config
-cd ~/.config/agent-config
+git clone git@github.com:SrRenks/prometheus-ai.git ~/.config/prometheus-ai
+cd ~/.config/prometheus-ai
 ./setup.sh                    # tool bridges and the git identity include
 bash agents/dsh/install.sh    # dsh preset and shared skills (optional)
 ```
@@ -56,11 +56,11 @@ bash agents/dsh/install.sh    # dsh preset and shared skills (optional)
 file sitting where a symlink will go is copied to `backups/<timestamp>/` first, so
 nothing is lost.
 
-Keep the clone at `~/.config/agent-config`. The paths written inside `AGENTS.md`
+Keep the clone at `~/.config/prometheus-ai`. The paths written inside `AGENTS.md`
 and the skills name that location, and `ai-init` / `ai-context` point every project
 they touch at it, so a clone somewhere else leaves agent instructions referencing
 files that are not there. `setup.sh` warns when it runs from another path, and
-`ai-init` / `ai-context` accept `AGENT_CONFIG_DIR` if you relocate the config on
+`ai-init` / `ai-context` accept `PROMETHEUS_AI_CONFIG_DIR` if you relocate the config on
 purpose.
 
 ### Bringing up a machine from nothing
@@ -566,7 +566,7 @@ point and names every shared doc with its path.
 | `onboarding.md` | procedure for entering an existing project |
 | `ai-directory.md` | the `.ai/` structure standard |
 | `project-docs.md` | the committed `docs/` and README standard |
-| `agent-config-authoring.md` | how to add rules, skills, docs, and templates to this repo |
+| `prometheus-ai-authoring.md` | how to add rules, skills, docs, and templates to this repo |
 | `ai-writing.md` | prose rules for anything a human reads |
 | `evals.md` | the retained eval set that gates changes to the shared rules |
 | `sources.md` | where each rule, threshold, and design choice came from, by domain, with retrieval dates |
@@ -595,7 +595,7 @@ covers the resolution order.
 
 ## Extending the config
 
-1. Load `core/docs/agent-config-authoring.md`, or run the `extend-config` skill.
+1. Load `core/docs/prometheus-ai-authoring.md`, or run the `extend-config` skill.
 2. Write the file following its format rules: imperative bullets for rules,
    numbered steps for skills, headers and bullets for reference docs.
 3. Run the wiring checklist: new docs go into `AGENTS.md` section 3, structure

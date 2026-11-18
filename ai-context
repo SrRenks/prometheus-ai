@@ -17,13 +17,13 @@ set -euo pipefail
 
 # Config root, resolved from this script's own location so the repo works from
 # any clone path. setup.sh symlinks this script into ~/.local/bin, hence the
-# symlink chase. AGENT_CONFIG_DIR overrides it (must point at the repo root).
+# symlink chase. PROMETHEUS_AI_CONFIG_DIR overrides it (must point at the repo root).
 SELF="${BASH_SOURCE[0]}"; _hops=0
 while [ -L "$SELF" ] && [ "$_hops" -lt 40 ]; do
     _hops=$((_hops + 1)); LINK="$(readlink "$SELF")"
     case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
 done
-CONFIG="${AGENT_CONFIG_DIR:-$(cd "$(dirname "$SELF")" && pwd)}"
+CONFIG="${PROMETHEUS_AI_CONFIG_DIR:-$(cd "$(dirname "$SELF")" && pwd)}"
 PROJECT="$(pwd)"
 CTX="$PROJECT/.ai/context"
 FORCE=0
@@ -32,7 +32,7 @@ FORCE=0
 say() { printf '%s\n' "$*"; }
 die() { say "error: $*" >&2; exit 1; }
 
-[ -d "$CONFIG" ] || die "config not found at $CONFIG - run setup.sh first, or set AGENT_CONFIG_DIR"
+[ -d "$CONFIG" ] || die "config not found at $CONFIG - run setup.sh first, or set PROMETHEUS_AI_CONFIG_DIR"
 if [ ! -d "$PROJECT/.ai" ]; then
   say "  note: .ai/ is missing - run \`ai-init\` first (context generated anyway)"
 fi

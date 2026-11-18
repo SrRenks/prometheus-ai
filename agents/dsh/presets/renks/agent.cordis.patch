@@ -32,11 +32,12 @@
  - id: time-context
    name: '@deepseek-ai/dsh-time-context'
  - id: tool-bash
-@@ -27,10 +44,21 @@
-   name: '@deepseek-ai/dsh-tool-jobs'
- - id: tool-schedule
-   name: '@deepseek-ai/dsh-tool-schedule'
-+# `skill-filesystem` contributes local-root discovery for agents on this preset.
+@@ -32,8 +49,18 @@
+   config:
+     customSkillDirs:
+       - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
+-- id: tool-skill
+-  name: '@deepseek-ai/dsh-tool-skill'
 +# The full skill-catalog injection (`dsh-tool-skill`'s ~9KB `<available_skills>`
 +# reminder) is REMOVED (evidence-based, see the identity section). Instead
 +# `skill-search` exposes two small on-demand tools — `skill_search` (list
@@ -47,16 +48,12 @@
 +#
 +# The skill REGISTRY lives in the host composition and is layered per scope:
 +# these rows register into THIS preset's layer of it, so they need no realm.
- - id: skill-filesystem
-   name: '@deepseek-ai/dsh-skill-filesystem'
--- id: tool-skill
--  name: '@deepseek-ai/dsh-tool-skill'
 +- id: skill-search
 +  name: ./skill-search.mjs
  - id: command-goal
    name: '@deepseek-ai/dsh-command-goal'
  - id: tool-goal
-@@ -41,6 +69,12 @@
+@@ -44,6 +71,12 @@
    isolate:
      planMode: true
    config:
@@ -69,7 +66,7 @@
      - id: plan-mode
        name: '@deepseek-ai/dsh-plan-mode'
        config:
-@@ -100,6 +134,9 @@
+@@ -105,6 +138,9 @@
    name: '@deepseek-ai/dsh-tool-todo'
    config:
      allowParallelInProgress: true

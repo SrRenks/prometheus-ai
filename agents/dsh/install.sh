@@ -2,7 +2,7 @@
 # agents/dsh/install.sh - install the personal dsh layer on this machine.
 #
 # One command after `git clone`:
-#     bash ~/.config/agent-config/agents/dsh/install.sh
+#     bash ~/.config/prometheus-ai/agents/dsh/install.sh
 #
 # Idempotent: safe to re-run after every `git pull` or dsh update. It rebuilds
 # the `renks` preset from the dsh version ACTUALLY INSTALLED here (stock
@@ -11,7 +11,7 @@
 # installed instead.
 set -euo pipefail
 
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../agent-config/agents/dsh
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../prometheus-ai/agents/dsh
 REPO="$(cd "${SRC}/../.." && pwd)"                    # repo root (clone location)
 DSH_H="${DSH_HOME:-${HOME}/.dsh}"
 PRESET_DIR="${SRC}/presets/renks"
@@ -208,6 +208,17 @@ attempt_recipe() {
 }
 
 attempt_recipe
+
+# A CONFLICTED recipe is not an installed recipe. When the 3-way merge fails and
+# the patch cannot be regenerated, ${RESULT} still exists: it holds the baseline
+# plus whatever hunks applied, with `<<<<<<<` markers in it. The fallback branch
+# below only fires on a MISSING file, so on 2026-11-18 exactly that path carried
+# markers into the bundle and would have carried them into every profile at the
+# next session start. Drop the file here so the existing fallback logic takes over.
+if [ -f "${RESULT}" ] && grep -q '^<<<<<<<' "${RESULT}"; then
+  echo "  [warn] the merged recipe contains conflict markers; discarding it"
+  rm -f "${RESULT}"
+fi
 
 # A recipe that never got built must not be reported as built. Everything past
 # this point copies ${RESULT}, so leave it absent only if the fallback is also

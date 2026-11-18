@@ -1,8 +1,8 @@
 # AGENTS.md - v2026-09-06
 
 ## Scope and ownership
-- This configuration is the single source of truth for agent behavior. It is READ-ONLY for agents: never create, edit, or delete anything under `~/.config/agent-config/` unless the human explicitly orders it. When the human does order a change, follow `~/.config/agent-config/core/docs/agent-config-authoring.md` (or load the extend-config skill).
-- A project's agent configuration lives in its `.ai/` directory. `.ai/agents.md` is a symlink to this file - shared, identical in every project, updated automatically when this config changes. `.ai/project.md` holds project-specific rules. The `.ai/` structure is defined in `~/.config/agent-config/core/docs/ai-directory.md`.
+- This configuration is the single source of truth for agent behavior. It is READ-ONLY for agents: never create, edit, or delete anything under `~/.config/prometheus-ai/` unless the human explicitly orders it. When the human does order a change, follow `~/.config/prometheus-ai/core/docs/prometheus-ai-authoring.md` (or load the extend-config skill).
+- A project's agent configuration lives in its `.ai/` directory. `.ai/agents.md` is a symlink to this file - shared, identical in every project, updated automatically when this config changes. `.ai/project.md` holds project-specific rules. The `.ai/` structure is defined in `~/.config/prometheus-ai/core/docs/ai-directory.md`.
 - Custom, project-specific instructions belong only in `.ai/project.md` and `.ai/docs/`. Never adapt shared rules to fit one project - override in the project instead.
 - Injection varies by tool. Some auto-inject this file; the dsh preset injects nothing and enforces instead (rule 7). Never assume this file is in context - if unsure, read it.
 
@@ -15,43 +15,43 @@
 6. Touch only what's requested. No drive-by refactoring. No cleanups outside scope.
 7. Do not edit, write, or run a mutating command before reading the tier's behavioural rules. The dsh `docs-gate` plugin names the files, and the list is in Section 3.
 8. Formatting by audience: agent-facing files (this config, `.ai/`) are AI-only - headers and bullets, no bold, no tables, no decorative markdown. Committed project docs (`README.md`, `docs/`) are written for humans - full markdown, and the skeletons under `core/templates/` mirror that human format, tables and bold included.
-9. AI-writing hygiene applies only to prose written into files for humans (README, docs, code comments, commit messages): follow `~/.config/agent-config/core/docs/ai-writing.md`. Chat replies and `.ai/` files are exempt.
+9. AI-writing hygiene applies only to prose written into files for humans (README, docs, code comments, commit messages): follow `~/.config/prometheus-ai/core/docs/ai-writing.md`. Chat replies and `.ai/` files are exempt.
 
 ## Section 1: Project entry
 1. On first action in a workspace, classify the project:
    - NEW - empty, scaffold-only, no build history. Propose `ai-init`, fill `.ai/project.md` and project context, then plan the build-out.
-   - EXISTING - has source, build files, or commit history. Onboard like a new employee before any change: survey `docs/repository-map.md` and `.ai/context/index.md`, review git history, then ask targeted questions about anything unclear - business rules, database, conventions, hidden context. Follow the full procedure in `~/.config/agent-config/core/docs/onboarding.md`. Never re-create, restructure, or "improve" what already works.
+   - EXISTING - has source, build files, or commit history. Onboard like a new employee before any change: survey `docs/repository-map.md` and `.ai/context/index.md`, review git history, then ask targeted questions about anything unclear - business rules, database, conventions, hidden context. Follow the full procedure in `~/.config/prometheus-ai/core/docs/onboarding.md`. Never re-create, restructure, or "improve" what already works.
 2. At session start in an initialized project, read `.ai/project.md` and `.ai/session.md` before acting. In an EXISTING project, check git state first: current branch, uncommitted changes, recent commits; never make changes on `main` or a protected branch, and never create or switch branches, without the human's approval. Most tools do not inject `.ai/` files; this instruction is the only mechanism that loads them.
 3. Read state before acting: `.ai/assumptions.md` (decision log), `.ai/scratchpad.md` (working notes), `.ai/context/index.md` (project knowledge base).
 4. Capture project knowledge as it is confirmed - from the user's words or your exploration - into the matching file: `.ai/context/domain.md` (purpose, business rules, glossary), `.ai/context/architecture.md` (modules, data flow), `.ai/context/database.md` (schema, storage), `.ai/context/dependencies.md` (external services), `.ai/context/conventions.md` (local rules), `.ai/project.md` (stack, build/test, conventions), `.ai/assumptions.md` (decisions). Replace the open questions in the topic files with the confirmed facts. Never put facts in `.ai/context/index.md` - it is machine-owned.
 5. Consult `.ai/context/` and `.ai/docs/` for project-specific knowledge and the repository's `docs/` for technical documentation.
 6. Generate `README.md` and context topic files on demand with `ai-context` - driven by detected project context, only sections that apply. Never copy generic templates into the project.
-7. When creating agent-facing `.md` files (`.ai/`), follow `~/.config/agent-config/core/docs/ai-directory.md` and start from `~/.config/agent-config/core/templates/convention-doc.md`. Project docs (`README.md`, `docs/`) follow `~/.config/agent-config/core/docs/project-docs.md` and are formatted for humans.
+7. When creating agent-facing `.md` files (`.ai/`), follow `~/.config/prometheus-ai/core/docs/ai-directory.md` and start from `~/.config/prometheus-ai/core/templates/convention-doc.md`. Project docs (`README.md`, `docs/`) follow `~/.config/prometheus-ai/core/docs/project-docs.md` and are formatted for humans.
 8. Commit only after human approval.
 
 ## Section 2: Workflow (CRISPY)
-Full procedure and step order: `~/.config/agent-config/core/docs/development-workflow.md`.
+Full procedure and step order: `~/.config/prometheus-ai/core/docs/development-workflow.md`.
 ### Analysis
-1. Read the project's `docs/repository-map.md` for structure; if absent, use `~/.config/agent-config/core/docs/repository-map.md`.
+1. Read the project's `docs/repository-map.md` for structure; if absent, use `~/.config/prometheus-ai/core/docs/repository-map.md`.
 2. Read the mandatory doc set (Section 0, rule 7) before loading anything else.
 3. Plan before code for multi-file or uncertain work: numbered plan with explicit success criteria, with the assumptions recorded in `.ai/assumptions.md`. Skip the written plan when the change fits a one-sentence diff.
    Gate: the plan is approved before implementation starts.
 ### Implementation
 1. Surgical changes only - every diff line traces to the request. Minimum scope, not minimum quality: handle errors and edge cases. One task at a time.
 2. Test-first: write failing test -> implement -> verify pass -> refactor.
-3. Stay inside the complexity budgets, single-sourced at `~/.config/agent-config/core/docs/complexity.md`.
+3. Stay inside the complexity budgets, single-sourced at `~/.config/prometheus-ai/core/docs/complexity.md`.
    Gate: linters clean and all tests passing before review.
 ### Review
 1. Self-review the diff, then one ruthless edit of your own draft - remove dead code, abstractions, debug artifacts, and noise comments.
 2. Fresh-context review: delegate the diff to a subagent (or second session) that does not share this conversation; fix its valid findings before declaring done.
-3. Run the validation checklist - `~/.config/agent-config/core/docs/validation-checklist.md` (a project `docs/validation-checklist.md` overrides it) - and scan any human-facing prose in the change against `~/.config/agent-config/core/docs/ai-writing.md`.
+3. Run the validation checklist - `~/.config/prometheus-ai/core/docs/validation-checklist.md` (a project `docs/validation-checklist.md` overrides it) - and scan any human-facing prose in the change against `~/.config/prometheus-ai/core/docs/ai-writing.md`.
    Gate: human approval before the commit. Stage explicit files only; never `git add -A`.
 
 ## Section 3: Reference docs - shared, read on demand
-Read on demand; never copy them into projects. Paths below are relative to `~/.config/agent-config/`.
+Read on demand; never copy them into projects. Paths below are relative to `~/.config/prometheus-ai/`.
 - Gated by rule 7: `core/principles.md`; `development-workflow.md`, `complexity.md` and `maintainability.md` for source; `git-workflow.md` and `ai-writing.md` at commit, which adds those two and does not add the source tier; the one `languages/*.md` matching the file changed. `docs-gate` names anything missing.
 - `.ai/` structure: `core/docs/ai-directory.md`
-- Extending this config (rules/skills/docs/templates): `core/docs/agent-config-authoring.md`
+- Extending this config (rules/skills/docs/templates): `core/docs/prometheus-ai-authoring.md`
 - Onboarding: `core/docs/onboarding.md`
 - Project docs standard: `core/docs/project-docs.md`
 - Development workflow: `core/docs/development-workflow.md`

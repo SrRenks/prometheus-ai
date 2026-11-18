@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh - Install agent-config for every supported tool on this machine.
+# setup.sh - Install prometheus-ai for every supported tool on this machine.
 # Run once per machine (idempotent). Derives paths from its own location,
 # so the repo can be cloned anywhere.
 set -euo pipefail
@@ -26,17 +26,17 @@ symlink() {
     echo "  linked: $dst -> $src"
 }
 
-echo "=== agent-config setup (SRC: ${SRC}) ==="
+echo "=== prometheus-ai setup (SRC: ${SRC}) ==="
 
 # The rule docs referenced from AGENTS.md and the skills name the canonical path,
 # so a clone somewhere else leaves those references pointing at nothing.
-CANONICAL="$HOME/.config/agent-config"
+CANONICAL="$HOME/.config/prometheus-ai"
 if [ "$SRC" != "$CANONICAL" ]; then
     echo ""
     echo "  warning: config is at ${SRC}, not ${CANONICAL}."
     echo "           Paths written inside AGENTS.md and the skills assume"
     echo "           ${CANONICAL}, so agent instructions will reference files that"
-    echo "           are not there. Move the clone, or export AGENT_CONFIG_DIR when"
+    echo "           are not there. Move the clone, or export PROMETHEUS_AI_CONFIG_DIR when"
     echo "           running ai-init / ai-context."
     echo ""
 fi

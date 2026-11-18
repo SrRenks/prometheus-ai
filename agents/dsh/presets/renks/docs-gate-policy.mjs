@@ -103,17 +103,17 @@ export function describeError(error, depth = 0) {
  * walks the filesystem rather than trusting the literal paths written in
  * AGENTS.md, so a relocated or renamed checkout still works.
  *
- * @param env - environment to read (`AGENT_CONFIG`, `HOME`/`USERPROFILE`).
+ * @param env - environment to read (`PROMETHEUS_AI_CONFIG`, `HOME`/`USERPROFILE`).
  * @param home - explicit home directory, overriding the environment.
  * @returns candidate absolute roots, most specific first.
  */
 export function defaultRepoRoots(env = process.env, home = undefined) {
   const roots = []
   const homeDir = home ?? env.HOME ?? env.USERPROFILE
-  if (typeof env.AGENT_CONFIG === 'string' && env.AGENT_CONFIG.length > 0) roots.push(env.AGENT_CONFIG)
+  if (typeof env.PROMETHEUS_AI_CONFIG === 'string' && env.PROMETHEUS_AI_CONFIG.length > 0) roots.push(env.PROMETHEUS_AI_CONFIG)
   if (typeof homeDir === 'string' && homeDir.length > 0) {
-    roots.push(`${homeDir}/.config/agent-config`)
-    roots.push(`${homeDir}/agent-config`)
+    roots.push(`${homeDir}/.config/prometheus-ai`)
+    roots.push(`${homeDir}/prometheus-ai`)
   }
   return roots
 }
@@ -351,7 +351,7 @@ async function resolveConfigDocs({ seam, repoRoots, signal }) {
           tier: doc.tier,
           language: doc.language,
           commits: doc.commits,
-          display: `~/.config/agent-config/${doc.repoPath}`,
+          display: `~/.config/prometheus-ai/${doc.repoPath}`,
         })
       }
     }
@@ -404,7 +404,7 @@ export function denyUnresolved(exec, kind, detail = '') {
       ...(detail.length > 0 ? ['', `Underlying failure: ${detail}`] : []),
       '',
       'The gate could not read the shared config checkout. Fix the underlying read failure and retry, or read the docs directly:',
-      REQUIRED_DOCS.map(doc => `  - ~/.config/agent-config/${doc.repoPath}`).join('\n'),
+      REQUIRED_DOCS.map(doc => `  - ~/.config/prometheus-ai/${doc.repoPath}`).join('\n'),
     ].join('\n'),
   }
 }

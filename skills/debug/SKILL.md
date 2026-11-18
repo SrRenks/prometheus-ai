@@ -2,7 +2,7 @@
 name: debug
 description: 'Find and fix a bug systematically: reproduce it, isolate the failing path, verify assumptions, fix the root cause, and keep a regression test. Use when something is broken and the cause is not obvious, when an earlier fix did not hold, or when the user reports a bug with no known cause.'
 ---
-Work the bug down instead of guessing at it. Rules and tactics: `~/.config/agent-config/core/docs/debugging.md`.
+Work the bug down instead of guessing at it. Rules and tactics: `~/.config/prometheus-ai/core/docs/debugging.md`.
 
 1. Reproduce - get the smallest scenario that fails every time, and capture the exact dependency versions, logs, and stack traces.
 2. Isolate - narrow to the smallest failing unit, commenting out or stubbing half at a time. Write a failing test that pins the behavior before touching the fix.

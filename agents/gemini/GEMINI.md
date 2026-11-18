@@ -1,4 +1,4 @@
-@~/.config/agent-config/AGENTS.md
+@~/.config/prometheus-ai/AGENTS.md
 
 # Gemini CLI specific
 - No true read-only mode. Use only in non-production branches.

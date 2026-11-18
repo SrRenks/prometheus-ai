@@ -25,7 +25,7 @@
 6. Commit - only after approval
 
 ## Complexity budgets
-- Single source of the budgets and rationale: `~/.config/agent-config/core/docs/complexity.md`. Enforce in CI; do not increase total repository complexity without justification. Document exceptions in the commit message.
+- Single source of the budgets and rationale: `~/.config/prometheus-ai/core/docs/complexity.md`. Enforce in CI; do not increase total repository complexity without justification. Document exceptions in the commit message.
 - Evidence: GitClear's "AI Copilot Code Quality" studies (2024-2025) measure rising churn, copy/pasted lines, and duplicated code blocks in AI-assisted repositories, with refactoring ("moved" lines) declining - see https://gitclear-public.s3.us-west-2.amazonaws.com/AI-Copilot-Code-Quality-2025.pdf (retrieved 2026-09-06). Complex code is agent drag - expensive for both humans and agents to navigate.
 
 ## Dependencies
@@ -42,7 +42,7 @@
 - Interfaces solely for mocking - only introduce interfaces at stable boundaries with multiple implementations.
 
 ## Security
-- See `~/.config/agent-config/core/docs/security.md`.
+- See `~/.config/prometheus-ai/core/docs/security.md`.
 - Never log passwords, tokens, secrets, or private data.
 
 Sources: `core/docs/sources.md`, sections "Agent behavior, context, and instructions" and "Complexity, design, and maintainability".

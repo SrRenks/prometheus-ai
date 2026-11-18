@@ -14,7 +14,7 @@
 set -uo pipefail
 
 SESSION_DIR="$(pwd)/.ai"
-CONFIG="$HOME/.config/agent-config"
+CONFIG="$HOME/.config/prometheus-ai"
 
 # Report the failure and stop. `session-init` is a SessionStart hook, so a non-zero
 # exit surfaces the problem without denying any tool.

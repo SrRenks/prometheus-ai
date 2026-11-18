@@ -1,7 +1,7 @@
 # <Topic>
 
 Convention doc - one topic per file. Imperative, lean, project-specific.
-Template: `~/.config/agent-config/core/templates/convention-doc.md`
+Template: `~/.config/prometheus-ai/core/templates/convention-doc.md`
 
 ## Purpose
 <!-- One sentence: what this doc governs, and why it exists. Delete this comment. -->

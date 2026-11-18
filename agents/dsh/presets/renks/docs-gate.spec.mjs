@@ -74,11 +74,11 @@ test('isInside treats the root itself and descendants as inside', () => {
   assert.equal(isInside('/a/b', undefined), true)
 })
 
-test('defaultRepoRoots prefers AGENT_CONFIG then the home config dir', () => {
-  assert.deepEqual(defaultRepoRoots({ HOME: HOME }, HOME), [`${HOME}/.config/agent-config`, `${HOME}/agent-config`])
+test('defaultRepoRoots prefers PROMETHEUS_AI_CONFIG then the home config dir', () => {
+  assert.deepEqual(defaultRepoRoots({ HOME: HOME }, HOME), [`${HOME}/.config/prometheus-ai`, `${HOME}/prometheus-ai`])
   assert.deepEqual(
-    defaultRepoRoots({ HOME: HOME, AGENT_CONFIG: '/opt/cfg' }, HOME),
-    ['/opt/cfg', `${HOME}/.config/agent-config`, `${HOME}/agent-config`],
+    defaultRepoRoots({ HOME: HOME, PROMETHEUS_AI_CONFIG: '/opt/cfg' }, HOME),
+    ['/opt/cfg', `${HOME}/.config/prometheus-ai`, `${HOME}/prometheus-ai`],
   )
 })
 

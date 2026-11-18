@@ -2,7 +2,7 @@
 
 Purpose: where each behavior rule, design choice, and numeric threshold in this config comes from.
 How to read it: entries are grouped by domain. Each one names the source, the URL or DOI, the retrieval date, and the config files it justifies.
-Policy: a new behavioral rule or numeric threshold ships with its entry here, in the same commit (core/docs/agent-config-authoring.md, wiring checklist). A claim with no citable source is labeled repo design or community practice, never left silent.
+Policy: a new behavioral rule or numeric threshold ships with its entry here, in the same commit (core/docs/prometheus-ai-authoring.md, wiring checklist). A claim with no citable source is labeled repo design or community practice, never left silent.
 
 ## Prose and AI writing
 - Wikipedia, Signs of AI writing (WikiProject AI Cleanup): https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing (retrieved 2026-09-15). Used in: core/docs/ai-writing.md, the vocabulary, sentence-pattern, formatting, and structure lists.
@@ -89,7 +89,7 @@ Policy: a new behavioral rule or numeric threshold ships with its entry here, in
 - Write the Docs, Docs as Code: https://www.writethedocs.org/guide/docs-as-code/ (retrieved 2026-09-15). Used in: the docs-as-code principle in core/docs/project-docs.md.
 
 ## Skill format and distribution
-- Agent Skills standard, the specification behind skills/<name>/SKILL.md: https://agentskills.io and https://github.com/anthropics/skills/blob/main/spec/agent-skills-spec.md (retrieved 2026-09-15). Used in: the skills/ layout and the frontmatter fields in core/docs/agent-config-authoring.md.
+- Agent Skills standard, the specification behind skills/<name>/SKILL.md: https://agentskills.io and https://github.com/anthropics/skills/blob/main/spec/agent-skills-spec.md (retrieved 2026-09-15). Used in: the skills/ layout and the frontmatter fields in core/docs/prometheus-ai-authoring.md.
 - Anthropic, skill-creator (how to write and improve a skill, including optimizing its description for triggering accuracy): https://github.com/anthropics/skills/tree/main/skills/skill-creator (retrieved 2026-09-15). Used in: the decision to keep the triggers in the single description field.
 - Jesse Vincent, superpowers (MIT; one plugin manifest per harness, flat promoted-only skills directory): https://github.com/obra/superpowers (retrieved 2026-09-15). Used in: the reference architecture for multi-harness distribution, if this config ever ships as a plugin.
 - skills.sh, the cross-harness skill installer: https://skills.sh (retrieved 2026-09-15). Used in: the evaluation of distribution options; not adopted, the symlink model covers the five tools.
@@ -145,7 +145,7 @@ Decisions made here, with no external source. They are open to revision when evi
 When each file type entered the repository. Full history: git log --follow --diff-filter=A -- <path>.
 - core/principles.md, core/docs/complexity.md, core/docs/testing.md, core/docs/security.md, core/docs/development-workflow.md, core/docs/project-docs.md, core/docs/ai-directory.md, core/docs/validation-checklist.md: 767d20e, 2026-08-03, initial commit.
 - core/docs/sources.md: e028423, 2026-09-07, docs(sources): provenance for every rule, design choice, and threshold.
-- core/docs/agent-config-authoring.md: d52217e, 2026-09-07, authoring spec plus the extend-config skill.
+- core/docs/prometheus-ai-authoring.md: d52217e, 2026-09-07, authoring spec plus the extend-config skill.
 - core/docs/ai-writing.md: b29ae89, 2026-09-07, AI-writing tells checklist.
 - core/docs/evals.md: 5b00a63, 2026-09-07, project docs refresh with the evals guide.
 - The whole tree was regrouped under core/ and agents/ by the restructure of 2026-09-07, which is why the paths above differ from the original ones.

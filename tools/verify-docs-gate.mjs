@@ -33,7 +33,7 @@ import {
 /** A workspace with no `.git` anywhere above it, so the root walk fails. */
 const NO_MARKER_WORKSPACE = '/tmp'
 /** A path that exists in every checkout of this config. */
-const CONFIG_ROOT = process.env.AGENT_CONFIG ?? `${process.env.HOME}/.config/agent-config`
+const CONFIG_ROOT = process.env.PROMETHEUS_AI_CONFIG ?? `${process.env.HOME}/.config/prometheus-ai`
 
 let failures = 0
 const check = (label, ok, detail = '') => {
@@ -193,7 +193,7 @@ const mountSession = (sessionId) => {
 const demanded = (decision) => (decision.reason ?? '')
   .split('\n')
   .filter(line => /^\s+- /.test(line))
-  .map(line => line.trim().slice(2).replace('~/.config/agent-config/', ''))
+  .map(line => line.trim().slice(2).replace('~/.config/prometheus-ai/', ''))
 
 console.log('\na cold session is denied, and the read it names lifts the gate')
 {

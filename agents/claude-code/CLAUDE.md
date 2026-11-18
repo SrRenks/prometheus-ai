@@ -1,4 +1,4 @@
-@~/.config/agent-config/AGENTS.md
+@~/.config/prometheus-ai/AGENTS.md
 
 # Claude Code specific
 - Use plan mode for multi-file or uncertain tasks. Skip the plan when the change fits a one-sentence diff.

@@ -1,6 +1,6 @@
 # prometheus-ai repository map
 
-Layout of `~/.config/agent-config/` - the single source of truth for AI/agent configuration.
+Layout of `~/.config/prometheus-ai/` - the single source of truth for AI/agent configuration.
 This config is READ-ONLY for agents. Projects do not copy it: `ai-init` creates the project's `.ai/` directory, whose `agents.md` imports this config.
 
 ## Root level
@@ -29,7 +29,7 @@ Shared across all projects; read on demand (AGENTS.md §3). Never copied into a 
 - `ai-directory.md` - the `.ai/` structure standard (files, names, creation rules)
 - `project-docs.md` - the committed docs/ + README standard (templates, naming, workflow)
 - `repository-map.md` - this file
-- `agent-config-authoring.md` - the spec for extending this repo (rules, skills, docs, templates, bridges)
+- `prometheus-ai-authoring.md` - the spec for extending this repo (rules, skills, docs, templates, bridges)
 - `sources.md` - provenance of every rule, design choice, and threshold, grouped by domain: cited sources with retrieval dates, internal measurements, repo design decisions, and the commit that introduced each file type
 - `decisions/` - ADR template
 - `languages/` - go, kotlin, python, rust

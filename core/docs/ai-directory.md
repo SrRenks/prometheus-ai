@@ -5,12 +5,12 @@ This is the contract that `ai-init` and the SessionStart hook implement.
 
 ## Purpose
 - `.ai/` holds all per-project agent knowledge. It is local-only and never committed.
-- The shared config (`~/.config/agent-config/`) is READ-ONLY. Everything project-specific goes here.
+- The shared config (`~/.config/prometheus-ai/`) is READ-ONLY. Everything project-specific goes here.
 
 ## Structure
 ```
 .ai/
-├── agents.md       # SYMLINK → ~/.config/agent-config/AGENTS.md (shared, read-only)
+├── agents.md       # SYMLINK → ~/.config/prometheus-ai/AGENTS.md (shared, read-only)
 ├── project.md      # Project-specific rules: stack, build/test/lint, conventions
 ├── session.md      # Current session state (updated at session end)
 ├── assumptions.md  # Decision log - one numbered entry per decision
@@ -37,21 +37,21 @@ context/ holds the project knowledge base: internal context future agents need (
 5. `README.md` is generated on demand by `ai-context` too (project-docs standard) with only the sections that apply - never copied from a template.
 
 ## Rules
-1. Top-level files are fixed: `agents.md` (symlink), `project.md`, `session.md`, `assumptions.md`, `scratchpad.md`. `context/`, `docs/`, and `evals/` (retained eval runs, see `~/.config/agent-config/core/docs/evals.md`) are optional, created on demand. Do not add other top-level files without updating this standard.
+1. Top-level files are fixed: `agents.md` (symlink), `project.md`, `session.md`, `assumptions.md`, `scratchpad.md`. `context/`, `docs/`, and `evals/` (retained eval runs, see `~/.config/prometheus-ai/core/docs/evals.md`) are optional, created on demand. Do not add other top-level files without updating this standard.
 2. `docs/` files: one topic per file, lowercase kebab-case names (`git-workflow.md`, `testing.md`). Written as imperative rules - no fill-in placeholders.
 3. Content style: direct, imperative orders. Never write "context {describe here}" templates - write actual rules.
-4. `agents.md` is a symlink to `~/.config/agent-config/AGENTS.md` - never edit it (the shared config is READ-ONLY). Project rules live in `project.md`: imperative, placeholder-free directives, build/test/lint commands first.
+4. `agents.md` is a symlink to `~/.config/prometheus-ai/AGENTS.md` - never edit it (the shared config is READ-ONLY). Project rules live in `project.md`: imperative, placeholder-free directives, build/test/lint commands first.
 5. `.ai/` is created by `ai-init`. Keep it current with this standard.
 6. Never commit `.ai/` - the `.gitignore` entry is part of the setup.
 
 ## When to add a `.ai/docs/` file
 - When a project-specific convention must be documented (git workflow, stack rules, processes).
 - Short rules go in `.ai/project.md`; full documents go in `.ai/docs/`.
-- Never duplicate universal docs - if a convention already exists in the shared config (`~/.config/agent-config/core/docs/`), reference it instead; `.ai/docs/` holds only genuine project-specific deviations.
+- Never duplicate universal docs - if a convention already exists in the shared config (`~/.config/prometheus-ai/core/docs/`), reference it instead; `.ai/docs/` holds only genuine project-specific deviations.
 - Project technical documentation (architecture, design) belongs in the repository's committed `docs/`, not here.
 
 ## Creating convention docs (`.ai/docs/`)
-- Start from the template: `~/.config/agent-config/core/templates/convention-doc.md`.
+- Start from the template: `~/.config/prometheus-ai/core/templates/convention-doc.md`.
 - Name files in lowercase kebab-case: `git-workflow.md`, `testing.md`.
 - One topic per file; keep it lean (under ~100 lines) - split the file when it grows.
 - Imperative rules only; no placeholders; no generic information the model already knows.

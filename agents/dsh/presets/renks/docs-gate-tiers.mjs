@@ -21,7 +21,7 @@
  * The behavioural doc set, single-sourced from the shared config repo, tiered
  * and triggered.
  *
- * `repoPath` is relative to the agent-config checkout root. Language guides,
+ * `repoPath` is relative to the prometheus-ai checkout root. Language guides,
  * `coupling.md`, `testing.md` and the rest stay on-demand reading; gating them
  * would tax every session for occasional value.
  *

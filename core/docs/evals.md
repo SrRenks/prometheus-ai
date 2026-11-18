@@ -95,7 +95,7 @@ mechanism that already exists elsewhere:
 | `ci` | CI commands in `core/docs/testing.md` |
 | `onboard` | `core/docs/onboarding.md` |
 | `worktrees` | branch rules in `core/docs/git-workflow.md` |
-| `extend-config` | `core/docs/agent-config-authoring.md` |
+| `extend-config` | `core/docs/prometheus-ai-authoring.md` |
 
 Only `dispatch` carries something with no equivalent, and it is 16 lines. This
 matches the ETH Zurich finding already in `sources.md` from a different angle: a
@@ -125,7 +125,7 @@ against itself rather than against organic work. Recorded as a fact with its
 sample size rather than as a success rate.
 
 ## Process
-- Store runs under `.ai/evals/` (project) or `~/.config/agent-config/evals/`
+- Store runs under `.ai/evals/` (project) or `~/.config/prometheus-ai/evals/`
   (global; the repo's `.gitignore` ignores `evals/`). One JSONL line per run:
   date, config revision, task id, result, tokens, cost, latency.
 - Run A for every AGENTS.md/preset edit; run B for preset swaps, instruction

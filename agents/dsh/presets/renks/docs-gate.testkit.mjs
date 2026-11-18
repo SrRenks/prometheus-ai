@@ -13,7 +13,7 @@
 import { apply, normalizePath, REQUIRED_DOCS } from './docs-gate.mjs'
 
 export const HOME = '/home/tester'
-export const REPO = `${HOME}/.config/agent-config`
+export const REPO = `${HOME}/.config/prometheus-ai`
 export const WORKSPACE = '/work/project'
 export const CWD = `${WORKSPACE}/src/deep`
 

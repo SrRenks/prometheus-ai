@@ -77,22 +77,22 @@ const HINT_BLOCK = `# Instruction delivery — evidence-based (2026-09 config re
 `
 
 /**
- * The stock skill pair, replaced by the on-demand search/load pair.
+ * The stock injection row, replaced by the on-demand search/load row.
  *
- * ANCHORED ON THE ROWS, NOT ON A COMMENT. The 0.2.0 shipped preset is machine
- * generated and carries no comments at all, so the block this edit used to match
- * (the prose above `skill-filesystem`) does not exist there and the edit matched
- * zero times. Rows are what upstream actually ships and what a version bump is
- * least likely to reword.
+ * ANCHORED ON THE ONE ROW THIS PRESET ACTUALLY REPLACES. An earlier version of
+ * this edit matched `skill-filesystem` + `tool-skill` as a pair, which broke on
+ * 0.2.2-rc.3: upstream attached a `config.customSkillDirs` block to
+ * `skill-filesystem`, so the literal pair no longer existed, the edit matched
+ * zero times, and install.sh then installed a recipe whose 3-way merge still
+ * carried conflict markers. `skill-filesystem` is kept exactly as upstream ships
+ * it — including that config — because this preset has no opinion about it; only
+ * the injection tool is swapped.
  */
-const STOCK_SKILL_OLD = `- id: skill-filesystem
-  name: '@deepseek-ai/dsh-skill-filesystem'
-- id: tool-skill
+const STOCK_SKILL_OLD = `- id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 `
 
-const SKILL_NEW = `# \`skill-filesystem\` contributes local-root discovery for agents on this preset.
-# The full skill-catalog injection (\`dsh-tool-skill\`'s ~9KB \`<available_skills>\`
+const SKILL_NEW = `# The full skill-catalog injection (\`dsh-tool-skill\`'s ~9KB \`<available_skills>\`
 # reminder) is REMOVED (evidence-based, see the identity section). Instead
 # \`skill-search\` exposes two small on-demand tools — \`skill_search\` (list
 # matching name/description summaries) and \`skill_load\` (inject one skill's
@@ -102,8 +102,6 @@ const SKILL_NEW = `# \`skill-filesystem\` contributes local-root discovery for a
 #
 # The skill REGISTRY lives in the host composition and is layered per scope:
 # these rows register into THIS preset's layer of it, so they need no realm.
-- id: skill-filesystem
-  name: '@deepseek-ai/dsh-skill-filesystem'
 - id: skill-search
   name: ./skill-search.mjs
 `
