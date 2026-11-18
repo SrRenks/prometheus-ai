@@ -67,12 +67,14 @@ claim, and this repo has spent enough time on claims that could not be checked.
 | Gate cost, prose change | 1 doc, 776 tokens | `node tools/verify-docs-gate.mjs` |
 | Gate cost, source change | 4 docs, 2 945 tokens | the same |
 | Gate cost, commit | 3 docs, 2 844 tokens | the same |
+| Gate cost, `.ai/` prose change | 2 docs, ~3 059 tokens | the same (counts; the token figure is 776 + the measured 2 283 of AGENTS.md) |
+| Gate cost, `.ai/` source change | 5 docs, ~5 228 tokens | the same |
 | Control coverage of tracked docs | 28 of 60, 47% | `node tools/audit-config-surface.mjs` |
 | Shared doc volume, if all read | 23 files, 138 KB, ~33K tokens | `cat $(git ls-files 'core/docs/*.md') \| wc -c` |
 | Process fidelity: denied sessions that read every named doc | 3 of 4 | `node tools/audit-instruction-reads.mjs` |
 | Hook behaviour | 43 checks | `node tools/test-hooks.mjs` |
-| Gate behaviour, real filesystem | 22 checks | `node tools/verify-docs-gate.mjs` |
-| Gate behaviour, fabricated seam | 47 tests | `node --test 'agents/dsh/presets/renks/*.spec.mjs'` |
+| Gate behaviour, real filesystem | 25 checks | `node tools/verify-docs-gate.mjs` |
+| Gate behaviour, fabricated seam | 59 tests | `node --test 'agents/dsh/presets/renks/*.spec.mjs'` |
 | Skill loads across every recorded session | **0** | see the skill measurement below |
 
 ### The skills are never loaded, and nine of ten mirror a doc

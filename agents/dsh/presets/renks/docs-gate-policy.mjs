@@ -363,12 +363,23 @@ async function resolveConfigDocs({ seam, repoRoots, signal }) {
 /**
  * The denial for a mutation whose required docs are not satisfied.
  *
+ * The message names the docs THIS call needs and, once, the top-level contract
+ * they elaborate. The contract is not gated for ordinary calls because it is
+ * mostly an index, but it is where the ownership, memory-file and formatting
+ * rules live, so the pointer belongs in the one place the model is certain to
+ * read. It is omitted when the contract is itself among the missing docs.
+ *
  * @param exec - the denied call.
  * @param kind - the mutation kind the classifier reported.
  * @param missing - the docs still unread for this call's tier.
+ * @param index - display path of the top-level contract, when resolved.
  * @returns a `deny` decision carrying the actionable message.
  */
-export function denyMutation(exec, kind, missing) {
+export function denyMutation(exec, kind, missing, index = '~/.config/prometheus-ai/AGENTS.md') {
+  const indexMissing = missing.some(doc => doc.id === 'agents-index')
+  const pointer = indexMissing
+    ? []
+    : ['', `The contract those documents elaborate, and the index of everything else this config governs: ${index}.`]
   return {
     kind: 'deny',
     reason: [
@@ -376,6 +387,7 @@ export function denyMutation(exec, kind, missing) {
       '',
       'Read each of these with the `read` tool, then repeat the call. The gate lifts by itself as the reads land:',
       missing.map(doc => `  - ${doc.display}`).join('\n'),
+      ...pointer,
       '',
       'Why this gate exists: the shared config is the single source of truth for coding standards and the git workflow, and a change made without it is a change made against it. An audit of the recorded sessions found only about a tenth had read any of these files, so a hint was not enough.',
       'Read them even if the task looks routine.',

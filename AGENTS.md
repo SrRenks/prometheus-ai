@@ -49,7 +49,7 @@ Full procedure and step order: `~/.config/prometheus-ai/core/docs/development-wo
 
 ## Section 3: Reference docs - shared, read on demand
 Read on demand; never copy them into projects. Paths below are relative to `~/.config/prometheus-ai/`.
-- Gated by rule 7: `core/principles.md`; `development-workflow.md`, `complexity.md` and `maintainability.md` for source; `git-workflow.md` and `ai-writing.md` at commit, which adds those two and does not add the source tier; the one `languages/*.md` matching the file changed. `docs-gate` names anything missing.
+- Gated by rule 7: `core/principles.md`; `development-workflow.md`, `complexity.md` and `maintainability.md` for source; `git-workflow.md` and `ai-writing.md` at commit, which adds those two and does not add the source tier; the one `languages/*.md` matching the file changed. `docs-gate` names anything missing, and requires this file itself for writes under `.ai/`.
 - `.ai/` structure: `core/docs/ai-directory.md`
 - Extending this config (rules/skills/docs/templates): `core/docs/prometheus-ai-authoring.md`
 - Onboarding: `core/docs/onboarding.md`

@@ -107,6 +107,10 @@ where a future reader will find it.
   enforced - `C901` max 10 for Python, `gocyclo` for Go, `clippy::too_many_lines`
   at 60 for Rust. Requiring the budget without the tool configuration asks the
   agent to honour a limit it cannot check.
+- `ai`, selected by the target path: `AGENTS.md` itself, for writes under the
+  project's `.ai/` directory only. The contract is mostly an index, and its own
+  rules (ownership, memory files, formatting by audience) apply exactly there;
+  every other denial points at it instead of requiring it.
 - `commits` is a TRIGGER, not a rung. `core/docs/git-workflow.md` and
   `core/docs/ai-writing.md` are required when the call is `git commit`,
   `git push`, `gh pr create` or `lazygit`, and at no other time. It adds those two

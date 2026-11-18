@@ -131,6 +131,7 @@ Decisions made here, with no external source. They are open to revision when evi
 - Never git add -A; stage explicit files. Stated in AGENTS.md section 2 and enforced by the Claude Code hook.
 - Skill triggers live in `description`, the only skill frontmatter field both harnesses read (Anthropic Claude Code skills; the dsh skill index). The separate `whenToUse` field was dropped as redundant, and the dsh search tolerates its absence.
 - Skill and preset descriptions are single-quoted in frontmatter when they contain a colon. An unquoted colon followed by a space ends the scalar, the YAML fails to parse, and the loader drops the skill with no error: seven of ten skills were invisible this way until 2026-09-16.
+- Gating the top-level contract (AGENTS.md) for writes under `.ai/` only, and pointing at it in every other denial: repo design, 2026-11-18. The contract is mostly an index at 2 283 measured tokens, so gating it for every mutation would add it to the 776/2 945/2 844 tiers; its own ownership, memory-file and formatting rules apply where the `.ai/` structure applies. Used in: `tier: 'ai'` in docs-gate-tiers.mjs, the `aiTargets` selector, and the pointer in `denyMutation`.
 - The ~2.5K token ceiling for standing instructions (core/docs/evals.md, anchor check A): repo design, sized from the lean-injection sources above rather than from a published number. The measurement above sits at 2460, so it is a ceiling with roughly 40 tokens of slack: adding to AGENTS.md means removing something first.
 
 ## Community practice, uncited

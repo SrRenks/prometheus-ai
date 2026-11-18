@@ -55,6 +55,24 @@ export function isInside(path, root) {
 }
 
 /**
+ * Does this call write under a project's `.ai/` agent-config directory?
+ *
+ * `.ai/` is where the ownership, memory-file and formatting rules that only
+ * AGENTS.md and ai-directory.md carry actually apply, so a write there needs the
+ * top-level contract even when the file itself is prose. Matched on the
+ * normalized path, because the model may name it relative to the workspace or
+ * absolutely; an unrelated `.aix` directory must not match.
+ *
+ * @param target - the call's target path, as the model wrote it, or undefined.
+ * @returns true when the path is the `.ai` directory or underneath it.
+ */
+export function isAiTarget(target) {
+  if (typeof target !== 'string' || target.length === 0) return false
+  const path = normalizePath(target)
+  return path === '/.ai' || path.endsWith('/.ai') || path.includes('/.ai/')
+}
+
+/**
  * Resolve one call path against a base directory.
  *
  * @param path - the path as the model wrote it.

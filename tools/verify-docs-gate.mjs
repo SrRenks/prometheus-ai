@@ -129,7 +129,7 @@ console.log('\nthe shared docs resolve without any workspace root')
   // The registry is the source of truth, so adding a doc must not fail this.
   check('every registry doc is found', count === REQUIRED_DOCS.length, `${count}/${REQUIRED_DOCS.length}`)
   const tiers = new Set((docs.configDocs ?? []).map(doc => doc.tier))
-  check('and each carries its tier', tiers.has('core') && tiers.has('code') && tiers.has('language'), [...tiers].join(','))
+  check('and each carries its tier', tiers.has('core') && tiers.has('code') && tiers.has('language') && tiers.has('ai'), [...tiers].join(','))
 }
 
 console.log('\na mutation with no boundary is still gated')
@@ -233,6 +233,18 @@ console.log('\na source change demands the code tier, a commit demands the commi
     .call({ name: 'bash', arguments: { command: 'git commit -m x' } }))
   check('a commit asks for the commit-time docs', commit.some(d => d.endsWith('git-workflow.md')) && commit.some(d => d.endsWith('ai-writing.md')), commit.join(', '))
   check('and an ordinary edit does not', !prose.some(d => d.endsWith('git-workflow.md')), prose.join(', '))
+}
+
+console.log('\na .ai/ write demands the top-level contract, and only there')
+{
+  const ai = demanded(await mountSession(`verify-ai-${Date.now()}`)
+    .call({ name: 'write', arguments: { file_path: `${NO_MARKER_WORKSPACE}/.ai/context/domain.md` } }))
+  check('the .ai/ write demands the contract', ai.includes('AGENTS.md'), ai.join(', '))
+  check('and only the prose tier besides it', ai.length === 2 && ai.some(d => d.endsWith('core/principles.md')), ai.join(', '))
+
+  const prose = demanded(await mountSession(`verify-not-ai-${Date.now()}`)
+    .call({ name: 'write', arguments: { file_path: `${NO_MARKER_WORKSPACE}/notes.md` } }))
+  check('a non-.ai prose write does not demand it', !prose.includes('AGENTS.md'), prose.join(', '))
 }
 
 console.log('\na credit follows content, not the mention of a path')

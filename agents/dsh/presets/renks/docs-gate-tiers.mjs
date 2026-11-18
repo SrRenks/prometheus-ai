@@ -54,6 +54,13 @@ export const REQUIRED_DOCS = [
   { id: 'lang-go', repoPath: 'core/docs/languages/go.md', tier: 'language', language: 'go' },
   { id: 'lang-rust', repoPath: 'core/docs/languages/rust.md', tier: 'language', language: 'rust' },
   { id: 'lang-kotlin', repoPath: 'core/docs/languages/kotlin.md', tier: 'language', language: 'kotlin' },
+  // The top-level contract itself. It is not a rung: a write under the project's
+  // `.ai/` directory is the only call whose rules live here rather than in the
+  // docs above, so that is its trigger. Gating it for every change would add
+  // about 2.3K tokens to sessions that never touch `.ai/`; leaving it ungated
+  // left the ownership, memory-file and formatting rules enforced by nothing.
+  // The 2026-11-18 decision and its cost are recorded in `core/docs/evals.md`.
+  { id: 'agents-index', repoPath: 'AGENTS.md', tier: 'ai' },
 ]
 
 /**
@@ -187,7 +194,8 @@ const COMMIT_COMMAND_RE = /\bgit\s+(?:commit|push|merge|rebase|cherry-pick|tag)\
  *
  *   - the tier ladder: `core`, plus `code` for a source change;
  *   - the language dimension: the guide matching the changed file's extension;
- *   - the commit trigger: the commit-time docs, only when the call commits.
+ *   - the commit trigger: the commit-time docs, only when the call commits;
+ *   - the `.ai/` trigger: the top-level contract, only for writes there.
  *
  * They are unioned rather than nested, because none implies another: a prose
  * session that commits needs the commit docs without ever needing the code ones.
@@ -196,9 +204,10 @@ const COMMIT_COMMAND_RE = /\bgit\s+(?:commit|push|merge|rebase|cherry-pick|tag)\
  * @param available - the docs that EXIST in this workspace.
  * @param options.language - the language selected by the target's extension.
  * @param options.commits - whether the call is a commit-class act.
+ * @param options.aiTargets - whether the call writes under the project's `.ai/`.
  * @returns the subset of `available` that must be read.
  */
-export function docsForTier(tier, available, { language = undefined, commits = false } = {}) {
+export function docsForTier(tier, available, { language = undefined, commits = false, aiTargets = false } = {}) {
   const ceiling = TIERS.indexOf(tier)
   if (ceiling < 0) return available
   return available.filter(doc => {
@@ -206,6 +215,8 @@ export function docsForTier(tier, available, { language = undefined, commits = f
     if (doc.tier === undefined) return true
     // Selected by extension, never climbed.
     if (doc.tier === 'language') return language !== undefined && doc.language === language
+    // Selected by the target path, never climbed: the contract governs `.ai/`.
+    if (doc.tier === 'ai') return aiTargets === true
     // On the ladder: required, and the commit trigger adds it unconditionally.
     const own = TIERS.indexOf(doc.tier)
     const onLadder = own >= 0 && own <= ceiling

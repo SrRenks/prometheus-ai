@@ -55,6 +55,7 @@ import {
   describeError,
   docsForTier,
   findWorkspaceRoot,
+  isAiTarget,
   isCommitCommand,
   isMutationTool,
   languageForTarget,
@@ -266,6 +267,7 @@ async function gateCall(store, log, exec, next) {
   const requiredDocs = docsForTier(tier, state.docs, {
     language: languageForTarget(call.target),
     commits: isCommit,
+    aiTargets: isAiTarget(call.target),
   })
   // A credit counts only while the document still holds the content that was
   // read. A doc edited mid-session invalidates its credit on purpose: the agent
@@ -277,7 +279,11 @@ async function gateCall(store, log, exec, next) {
     missing.push(doc)
   }
   if (missing.length === 0) return next()
-  return denyMutation(exec, call.kind, missing)
+  // The index is not required for most calls, so the denial points at it
+  // instead of gating it: the pointer costs one line, the gate would cost
+  // ~2.3K tokens on every mutation.
+  const index = state.docs.find(doc => doc.id === 'agents-index')
+  return denyMutation(exec, call.kind, missing, index?.display)
 }
 
 /**

@@ -128,3 +128,51 @@ test('the commit trigger carries both commit-time docs, and only at a commit', a
   const afterOne = await h.pre({ name: 'bash', arguments: { command: 'git commit -m "x"' }, agent })
   assert.equal(afterOne.kind, 'deny', 'one commit-time doc does not satisfy the other')
 })
+
+test('a .ai/ write demands the top-level contract on top of the prose tier', async () => {
+  // The contract is mostly an index, and gating it for every change would tax
+  // sessions that never touch `.ai/`. Its own rules - ownership, memory files,
+  // formatting by audience - apply exactly where the `.ai/` structure applies,
+  // so the target path is the trigger.
+  const h = mount()
+  const agent = fakeAgent('s-ai-target')
+  const write = { name: 'write', arguments: { file_path: `${WORKSPACE}/.ai/context/domain.md` } }
+  const demandedOf = (decision) => (decision.reason ?? '').split('\n')
+    .filter(line => /^\s+- /.test(line))
+    .map(line => line.trim().slice(2))
+
+  const denied = await h.pre({ ...write, agent })
+  assert.equal(denied.kind, 'deny')
+  const demanded = demandedOf(denied)
+  assert.ok(demanded.some(path => path.endsWith('/AGENTS.md')), 'the .ai/ write must demand the contract')
+  assert.ok(demanded.some(path => path.endsWith('core/principles.md')), 'and the core tier')
+  assert.ok(!demanded.some(path => path.endsWith('complexity.md')), '.ai/ prose is still prose')
+
+  // The contract is its own requirement: the prose tier alone does not lift it.
+  for (const path of CORE_TIER_PATHS) await readDoc(h, agent, path)
+  const stillDenied = await h.pre({ ...write, agent })
+  assert.equal(stillDenied.kind, 'deny', 'reading the prose tier must not satisfy the contract')
+  assert.ok(demandedOf(stillDenied).some(path => path.endsWith('/AGENTS.md')))
+
+  await readDoc(h, agent, `${REPO}/AGENTS.md`)
+  assert.deepEqual(await h.pre({ ...write, agent }), { kind: 'allow' })
+})
+
+test('outside .ai/ the contract is pointed at, not demanded', async () => {
+  const h = mount()
+  const agent = fakeAgent('s-index-pointer')
+  const denied = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/README.md` }, agent })
+  assert.equal(denied.kind, 'deny')
+  assert.match(denied.reason, /The contract those documents elaborate/, 'the denial carries the pointer')
+  const demanded = denied.reason.split('\n').filter(line => /^\s+- /.test(line))
+  assert.ok(!demanded.some(line => line.includes('AGENTS.md')), 'but it is not a requirement there')
+})
+
+test('a path that merely contains the letters .ai is not an .ai/ target', async () => {
+  const h = mount()
+  const agent = fakeAgent('s-not-ai')
+  const denied = await h.pre({ name: 'write', arguments: { file_path: `${WORKSPACE}/.aix/notes.md` }, agent })
+  assert.equal(denied.kind, 'deny')
+  const demanded = denied.reason.split('\n').filter(line => /^\s+- /.test(line))
+  assert.ok(!demanded.some(line => line.includes('AGENTS.md')), '.aix is not the .ai directory')
+})
