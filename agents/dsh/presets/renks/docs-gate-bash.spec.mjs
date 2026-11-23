@@ -72,6 +72,10 @@ const READ_ONLY = [
   "env -C /tmp rm x",
   "(cd /tmp && rm x)",
   "x=\"$(cat <<'EOF'\nit's fine) really\nEOF\n)\"; echo \"$x\"",
+  // Python that runs only literal, read-only commands through subprocess.
+  "python3 - <<'PY'\nimport subprocess, os\nfiles = subprocess.run(['git', 'ls-files'], capture_output=True, text=True).stdout\nprint(len(files))\nPY",
+  "python3 - <<'PY'\nimport subprocess\nsha = 'abc'\nsrc = subprocess.check_output(['git', '-C', repo, 'show', f'{sha}:a.py'])\nPY",
+  "python3 -c \"import subprocess; print(subprocess.check_output('git log --oneline | head', shell=True))\"",
 ]
 
 const MUTATING = [
@@ -84,7 +88,7 @@ const MUTATING = [
   ["python3 - <<'PY'\np = 'docs/a.md'\nopen(p, 'w').write('x')\nPY", 'interpreter-write'],
   [`python3 -c "from pathlib import Path; Path('a.md').write_text('x')"`, 'interpreter-write'],
   [`python3 -Bc "import shutil; shutil.rmtree('build')"`, 'interpreter-write'],
-  ["python3 - <<'PY'\nimport subprocess\nsubprocess.run(['make'])\nPY", 'interpreter-write'],
+  ["python3 - <<'PY'\nimport subprocess\nsubprocess.run(['make', 'install'])\nPY", 'interpreter-write'],
   [`node -e "require('fs').writeFileSync('a.json', '{}')"`, 'interpreter-write'],
   [`ruby -e 'File.write("a", "x")'`, 'interpreter-write'],
   [`awk '{print > "out.txt"}' a.txt`, 'interpreter-write'],
@@ -142,6 +146,15 @@ const MUTATING = [
   ["gawk -i inplace '{print}' f.txt", 'in-place'],
   ["echo $'a\\'b'; rm f", 'fs-write'],
   [`bash -c '${'$('.repeat(12)}rm f${')'.repeat(12)}'`, 'unparsed'],
+  // ...and Python whose subprocess call writes, or cannot be read.
+  ["python3 - <<'PY'\nimport subprocess\nsubprocess.run(['git', 'commit', '-m', 'x'])\nPY", 'interpreter-write'],
+  ["python3 - <<'PY'\nimport subprocess\nsubprocess.run(['rm', path])\nPY", 'interpreter-write'],
+  ["python3 - <<'PY'\nimport subprocess\nsubprocess.run(['sh', '-c', cmd])\nPY", 'interpreter-write'],
+  ["python3 - <<'PY'\nimport subprocess\nsubprocess.run([prog, 'x'])\nPY", 'interpreter-write'],
+  ['bash -c "$CMD"', 'interpreter-write'],
+  ["python3 - <<'PY'\nimport subprocess\ndef sh(c):\n    return subprocess.run(c, shell=True)\nPY", 'interpreter-write'],
+  ["python3 - <<'PY'\nfrom subprocess import run\nrun(['git', 'log'])\nPY", 'interpreter-write'],
+  ["python3 - <<'PY'\nimport subprocess\nsubprocess.run(['git', 'log'])\nopen('out.txt', 'w').write('x')\nPY", 'interpreter-write'],
 ]
 
 test('read-only commands are not gated', () => {

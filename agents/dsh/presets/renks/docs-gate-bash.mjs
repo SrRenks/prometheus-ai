@@ -351,7 +351,8 @@ function classifyInterpreter(name, words, command, ctx) {
   if (code === null) return { kind: 'interpreter-write', target: undefined }
   if (code === undefined || code.length === 0) return undefined
   if (family === 'shell') return classifyBashCall(code, ctx.base, ctx.root, ctx.depth + 1)
-  return codeWrites(family, code) ? { kind: 'interpreter-write', target: undefined } : undefined
+  const commandWrites = cmd => classifyBashCall(cmd, ctx.base, ctx.root, ctx.depth + 1) !== undefined
+  return codeWrites(family, code, commandWrites) ? { kind: 'interpreter-write', target: undefined } : undefined
 }
 
 /** `xargs rm`: the command runs on paths read from stdin, so its targets are unknown. */

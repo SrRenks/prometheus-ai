@@ -97,7 +97,8 @@ function pipedProgram(command) {
 export function inlineCode(family, args, command) {
   if (family === 'awk') return positionals(args.filter(w => !/^-[fv]$/.test(w.value)))[0]?.value
   const flag = args.findIndex(word => CODE_FLAGS[family].test(word.value))
-  if (flag >= 0) return args[flag + 1]?.value ?? ''
+  // `bash -c "$CMD"`: code that is only a variable cannot be read.
+  if (flag >= 0) return /^\$\S*$/.test(args[flag + 1]?.value ?? '') ? null : (args[flag + 1]?.value ?? '')
   const operands = positionals(args, new Set(['-m', '-W', '-X', '-r', '-I']))
   if (family === 'python' && args.some(word => word.value === '-m')) return undefined
   if (operands.length > 0 && operands[0].value !== '-') return undefined
@@ -106,8 +107,81 @@ export function inlineCode(family, args, command) {
   return pipedProgram(command)
 }
 
-/** Does this code, in this family, write or start a process? */
-export function codeWrites(family, code) {
-  const text = family === 'awk' ? code.replace(/"(?:[^"\\]|\\.)*"/g, '""') : code
+/**
+ * A `subprocess` call whose command is a literal, so the gate can read it:
+ * `subprocess.run(['git', 'ls-files'], ...)` or `check_output("git log", ...)`.
+ */
+const SUBPROCESS_CALL_RE = /\bsubprocess\s*\.\s*(?:run|check_output|check_call|call|Popen|getoutput|getstatusoutput)\s*\(\s*(\[[^\]]*\]|[rRbBuU]*'[^'\n]*'|[rRbBuU]*"[^"\n]*")/g
+
+/** One Python literal, or `$X` (an unknown word) for anything else. */
+function pythonWord(element) {
+  const text = element.trim()
+  const literal = /^([rRbBuUfF]*)(['"])((?:\\.|(?!\2).)*)\2$/s.exec(text)
+  if (literal === null) return '$X'
+  if (/[fF]/.test(literal[1]) && literal[3].includes('{')) return '$X'
+  const value = literal[3].replace(/\\(['"\\])/g, '$1')
+  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/** Split the inside of a Python list on its top-level commas. */
+function splitList(inner) {
+  const parts = []
+  let quote
+  let start = 0
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]
+    if (quote !== undefined) {
+      if (ch === '\\') i++
+      else if (ch === quote) quote = undefined
+    } else if (ch === "'" || ch === '"') quote = ch
+    else if (ch === ',') {
+      parts.push(inner.slice(start, i))
+      start = i + 1
+    }
+  }
+  parts.push(inner.slice(start))
+  return parts.filter(part => part.trim().length > 0)
+}
+
+/** The shell command a literal `subprocess` argument runs. */
+function subprocessCommand(arg) {
+  if (!arg.startsWith('[')) return pythonWord(arg).replace(/^'|'$/g, '')
+  return splitList(arg.slice(1, -1)).map(pythonWord).join(' ')
+}
+
+/**
+ * Remove the `subprocess` calls whose literal command the gate reads as a
+ * query, and `subprocess` from the imports. What is left still says
+ * `subprocess` when any call could not be read, and is then counted.
+ *
+ * Replayed over recorded sessions, most inline Python the gate denied used
+ * `subprocess` only to run `git ls-files`, `git show` or `git log`.
+ */
+function withoutReadOnlySubprocess(code, commandWrites) {
+  return code
+    .replace(SUBPROCESS_CALL_RE, (call, arg) => {
+      const command = subprocessCommand(arg)
+      // A program named by a variable could be anything.
+      return command.startsWith('$') || commandWrites(command) ? call : 'None'
+    })
+    .replace(/(^|;)([ \t]*import[ \t]+)([\w \t,]+?)(?=[ \t]*(?:;|$))/gm, (line, lead, head, names) => {
+      const kept = names.split(',').map(name => name.trim()).filter(name => name !== 'subprocess')
+      return kept.length === 0 ? lead : `${lead}${head}${kept.join(', ')}`
+    })
+}
+
+/**
+ * Does this code, in this family, write or start a process?
+ *
+ * @param family - the interpreter family.
+ * @param code - the inline code.
+ * @param commandWrites - classifies a shell command a Python `subprocess`
+ *   call runs; without it every `subprocess` use counts.
+ * @returns true when the code can change files.
+ */
+export function codeWrites(family, code, commandWrites = undefined) {
+  let text = code
+  if (family === 'awk') text = code.replace(/"(?:[^"\\]|\\.)*"/g, '""')
+  if (family === 'python' && commandWrites !== undefined) text = withoutReadOnlySubprocess(code, commandWrites)
   return CODE_WRITES[family].test(text)
 }
