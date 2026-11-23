@@ -42,7 +42,11 @@ result is stable or better - and never because of a public-benchmark number.
   commit-time prose rules in the gated set, and lost more than it gained. Slack
   is roughly 48 tokens. Treat the figure as an estimate and re-measure with a
   real tokenizer before relying on it, and remember the rule either way: anything
-  added to AGENTS.md comes out of something else first. The skill catalog is not
+  added to AGENTS.md comes out of something else first. Re-measured 2026-11-23
+  with tiktoken: 2478 tokens on o200k_base (2486 on cl100k_base) for the
+  subscription path, AGENTS.md 2282 plus `agents/claude-code/claude-code.md` 165
+  plus the two import lines of CLAUDE.md 31, so 22 tokens of slack; the token-mode
+  path, CLAUDE.token.md plus claude-code.md, carries 293. The skill catalog is not
   injected at all under the renks preset.
 
 ### B. task set (run for substantive changes)
@@ -63,7 +67,9 @@ claim, and this repo has spent enough time on claims that could not be checked.
 
 | Measure | Value | Reproduce with |
 |---|---|---|
-| Standing injection, subscription mode (AGENTS.md + claude-code.md) | ~2 452 tokens of 2 500 | see anchor A above |
+| Standing injection, subscription mode (AGENTS.md + claude-code.md + CLAUDE.md) | 2 478 tokens of 2 500 | see anchor A above |
+| Standing injection, token mode (CLAUDE.token.md + claude-code.md) | 293 tokens | the same |
+| Recorded gate denials still denied | 61 of 241 `bash` calls | `node tools/replay-gate-denials.mjs` |
 | Gate cost, prose change | 1 doc, 776 tokens | `node tools/verify-docs-gate.mjs` |
 | Gate cost, source change | 4 docs, 2 945 tokens | the same |
 | Gate cost, commit | 3 docs, 2 844 tokens | the same |

@@ -54,8 +54,12 @@ const INSTRUCTION_FILE_RE = /AGENTS\.md|CLAUDE\.md|\.ai\/(project|session|assump
 /** Tool names whose arguments can name a read target. Claude Code capitalises them. */
 const READ_TOOLS_RE = /"name":"(read|grep|glob|bash)"/i
 
-/** A denial as the model sees it: the dsh plugin's, then the Claude Code hook's. */
-const DENIAL_RE = /Error: \w+ is blocked once per session|\w+ is blocked by docs-gate/
+/**
+ * A denial as the model sees it, the dsh plugin's or the Claude Code hook's, at
+ * the START of a result string: a `cat` of the gate's own source carries the
+ * same words mid-output and is not a denial.
+ */
+const DENIAL_RE = /(?:"(?:text|content)":"|hook error: )(?:Error: )?\w+ is blocked (?:once per session|by docs-gate)/
 
 /** Parse `--flag value` arguments. */
 function parseArgs(argv) {

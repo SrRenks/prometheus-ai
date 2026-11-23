@@ -570,9 +570,12 @@ Claude Code gets three hooks, wired in `agents/claude-code/settings.json`:
   `curl ... | sh`, counts as a write. That scan is a tripwire, not a sandbox, and
   a script file is not read at all. A command that does several things needs the
   docs of all of them, so `rm a.txt && git commit` asks for the code tier and the
-  commit docs. Replayed over the 241 `bash` calls the old regex classifier denied
-  in recorded dsh sessions, 167 were queries and now pass; the 74 still denied
-  write to the workspace or run a process.
+  commit docs. Inline Python that runs only literal, read-only commands through
+  `subprocess` (`git ls-files`, `git show`) passes; any other `subprocess` use
+  counts. Replayed with `node tools/replay-gate-denials.mjs` over the 241 `bash`
+  calls the old regex classifier denied in recorded dsh sessions, 180 were
+  queries and now pass; the 61 still denied write to the workspace or run a
+  process the gate cannot read.
 
   Three things keep a denial from turning into a loop. A Read with `offset` or
   `limit` that misses part of a doc is not a credit, and Claude is told so next
@@ -696,6 +699,7 @@ for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done             
 node --test 'agents/dsh/presets/renks/*.spec.mjs'                                  # gate behaviour and tiers
 node --test 'tools/*.spec.mjs'                                                     # stock resolver, helper parsers, Claude docs-gate, audit, setup modes
 node tools/test-hooks.mjs                                                          # Claude Code hooks and their settings.json wiring
+node tools/replay-gate-denials.mjs                                                 # recorded gate denials replayed through the current bash rules
 node tools/build-preset-recipe.mjs --check                                         # preset recipe in sync with installed stock
 find . -type l ! -exec test -e {} \; -print                                        # broken symlinks
 python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/claude-code.md')))"  # injection budget
@@ -704,8 +708,10 @@ python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); prin
 Each check needs its own loop: `bash -n` and `node --check` only inspect the
 first file they are given. The last check needs `tiktoken` (`pip install
 tiktoken`), which is not a repo dependency. It measures what a first request
-carries in subscription mode: ~2467 tokens as of 2026-10-05 against the ~2.5K ceiling, so roughly 30
-tokens of slack (`core/docs/evals.md` records the method and the older reading).
+carries in subscription mode: 2478 tokens on o200k_base as of 2026-11-23 (AGENTS.md
+2282, `claude-code.md` 165, the import lines of `CLAUDE.md` 31) against the 2.5K
+ceiling, so 22 tokens of slack. Token mode carries 293 (`core/docs/evals.md`
+records the method and the older readings).
 
 Skill frontmatter needs `name` and `description`, with `name` matching the
 directory. Rule frontmatter needs `description`, `globs`, and
