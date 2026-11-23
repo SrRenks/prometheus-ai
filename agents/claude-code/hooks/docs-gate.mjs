@@ -32,7 +32,7 @@
  * the optional cross-session store, off by default for the reason the dsh
  * README gives.
  */
-import { readFileSync, realpathSync, writeSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -41,15 +41,19 @@ import { coversWhole } from '../../dsh/presets/renks/docs-gate-credit.mjs'
 import {
   classifyCall,
   defaultRepoRoots,
+  denyUninitialized,
   denyUnresolved,
   describeError,
   docLines,
   findWorkspaceRoot,
   gateAdvice,
   isCodingError,
+  needsInit,
   normalizePath,
+  optOutPaths,
   requiredDocsFor,
   resolveRequiredDocs,
+  setsUpInit,
 } from '../../dsh/presets/renks/docs-gate-policy.mjs'
 import { createSeamFor } from '../../dsh/presets/renks/docs-gate-seam.mjs'
 import { loadStore, recordRead, storeEnabled, storeHolds } from '../../dsh/presets/renks/docs-gate-store.mjs'
@@ -113,7 +117,37 @@ async function resolveDocs(cwd, env) {
   if (agents !== undefined && configDocs.length > 0 && tokenMode(env) && readText(agents) !== undefined) {
     docs.unshift({ id: 'agents', path: agents, display: '~/.config/agent-config/AGENTS.md', tier: 'core' })
   }
-  return { boundary: found.found === true ? root : undefined, docs }
+  return { boundary: found.found === true ? root : undefined, docs, configRoot: repoRoot }
+}
+
+/** Does this resolved workspace still need `ai-init`? */
+function pendingInit(resolved, env) {
+  return needsInit({
+    ...resolved,
+    optedOut: resolved.boundary !== undefined && optedOut(resolved.boundary),
+    required: env.DOCS_GATE_REQUIRE_INIT !== '0',
+  })
+}
+
+/** Has the user opted this clone out? `.git` is a file in a worktree or a submodule. */
+function optedOut(boundary) {
+  const dotGit = join(boundary, '.git')
+  let text
+  try {
+    if (statSync(dotGit).isFile()) text = readFileSync(dotGit, 'utf8')
+  } catch {
+    return false
+  }
+  return optOutPaths(boundary, text).some(path => existsSync(path))
+}
+
+/** The real path, or undefined when it does not exist. */
+function realOrUndefined(path) {
+  try {
+    return realpathSync(path)
+  } catch {
+    return undefined
+  }
 }
 
 /** Is Claude Code linked to the token-mode CLAUDE.md, which does not import AGENTS.md? */
@@ -183,6 +217,11 @@ async function preToolUse(input, ctx) {
   const call = classifyCall(exec, resolved.boundary)
   if (call === undefined || resolved.docs.length === 0) return {}
 
+  if (pendingInit(resolved, ctx.env) && !setsUpInit(call, resolved.boundary, { realpath: realOrUndefined })) {
+    const repeats = ctx.ledger.bumpDenial(`${input.tool_name}\0${JSON.stringify(input.tool_input ?? {})}`)
+    return deny(denyUninitialized({ name: input.tool_name }, call.kind, resolved.boundary, { repeats }).reason)
+  }
+
   const reused = []
   const required = requiredDocsFor(call, exec.arguments.command, resolved.docs)
   const missing = required.filter(doc => !holdsNow(ctx, doc, reused))
@@ -246,11 +285,20 @@ async function postToolUse(input, ctx) {
   return {}
 }
 
-/** SessionStart: prune old ledgers; after compaction or /clear, forget this session's reads. */
-function sessionStart(input, ctx) {
+/**
+ * SessionStart: prune old ledgers; after compaction or /clear, forget this
+ * session's reads. At startup in a git workspace with no `.ai/project.md`, say
+ * so: stated as a fact next to the session, which is how the hooks reference
+ * asks additional context to be written.
+ */
+async function sessionStart(input, ctx) {
   pruneStale(ctx.stateDir)
   if (input.source === 'compact' || input.source === 'clear') ctx.ledger.reset()
-  return {}
+  if (input.source !== 'startup') return {}
+  const resolved = await resolveDocs(ctx.cwd, ctx.env).catch(() => undefined)
+  if (resolved === undefined || resolved.docs.length === 0 || !pendingInit(resolved, ctx.env)) return {}
+  const note = `docs-gate: ${resolved.boundary} is a git workspace with no .ai/project.md, so it has not been set up with the shared standard (AGENTS.md section 1). Changes there are denied until \`ai-init\` runs, which needs the user's approval; reading and exploring are open.`
+  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: note } }
 }
 
 /** Where the ledgers live. */

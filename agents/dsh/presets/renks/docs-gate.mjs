@@ -50,16 +50,23 @@ import {
   commandOf,
   cwdOf,
   defaultRepoRoots,
+  INIT_DOC,
   denyMutation,
+  denyUninitialized,
   denyUnresolved,
   describeError,
+  fileExists,
   findWorkspaceRoot,
   isMutationTool,
+  joinPath,
+  needsInit,
   normalizePath,
+  optOutPaths,
   pathOf,
   requiredDocsFor,
   resolveRequiredDocs,
   rootSessionId,
+  setsUpInit,
 } from './docs-gate-policy.mjs'
 
 export * from './docs-gate-policy.mjs'
@@ -80,7 +87,7 @@ export const name = 'docs-gate'
  * @param options.log - records a warning once per process.
  * @returns the gate's state accessors.
  */
-function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
+function createStore({ seamFor, repoRoots, extraDocs, creditStore, requireInit, log }) {
   const sessions = new Map()
 
   /** Load or create the record for one root session. */
@@ -92,6 +99,8 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
         pending: undefined, resolvedAt: undefined, failure: undefined,
         // Denials per exact call, and docs read only in part: both feed the denial text.
         denials: new Map(), partial: new Set(),
+        // The config checkout (exempt from the init check) and the per-clone opt-out.
+        configRoot: undefined, optedOut: false,
       }
       sessions.set(id, state)
     }
@@ -124,6 +133,7 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
 
     const resolved = await resolveRequiredDocs({ seam, workspaceRoot: state.root, repoRoots, extraDocs, signal })
     state.docs = [...(resolved.configDocs ?? []), ...(resolved.projectDocs ?? [])]
+    state.configRoot = resolved.repoRoot
     // Optional, off unless `creditStore` names a path. Seeded only for docs whose
     // content still hashes to what a previous session read, and logged, because a
     // session that mutates without the rules in context while the gate reports
@@ -157,7 +167,7 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
   /** The configured credit store path, or undefined when the feature is off. */
   const creditStorePath = () => (storeEnabled(creditStore) ? creditStore : undefined)
 
-  return { stateFor, resolveOnce, seamFor, creditStorePath }
+  return { stateFor, resolveOnce, seamFor, creditStorePath, requireInit }
 }
 
 /**
@@ -253,6 +263,9 @@ async function gateCall(store, log, exec, next) {
     return next()
   }
 
+  const uninitialized = await initDenial(store, state, call, exec)
+  if (uninitialized !== undefined) return uninitialized
+
   // The tier ladder, the language of the file being changed, and whether this
   // call is the commit act itself: see `requiredDocsFor`.
   const requiredDocs = requiredDocsFor(call, commandOf(exec.arguments), state.docs)
@@ -266,10 +279,47 @@ async function gateCall(store, log, exec, next) {
     missing.push(doc)
   }
   if (missing.length === 0) return next()
+  return denyMutation(exec, call.kind, missing, { repeats: countDenial(state, exec), partial: state.partial })
+}
+
+/** Count one more denial of this exact call, for the repeat advice. */
+function countDenial(state, exec) {
   const key = `${exec.name}\0${JSON.stringify(exec.arguments)}`
   const repeats = (state.denials.get(key) ?? 0) + 1
   state.denials.set(key, repeats)
-  return denyMutation(exec, call.kind, missing, { repeats, partial: state.partial })
+  return repeats
+}
+
+/**
+ * Deny a change in a git workspace that has not been initialized, or return
+ * undefined to let the docs check run. The doc set is cached per session, so
+ * while the workspace is uninitialized `.ai/project.md` and the opt-out marker
+ * are probed again on each mutation: `ai-init` run mid-session lifts the check.
+ *
+ * @returns a deny decision, or undefined.
+ */
+async function initDenial(store, state, call, exec) {
+  if (!needsInit({ boundary: state.boundary, docs: state.docs, configRoot: state.configRoot, required: store.requireInit })) return undefined
+  const seam = store.seamFor(cwdOf(exec.agent) ?? process.cwd(), exec.signal)
+  const projectDoc = normalizePath(joinPath(state.boundary, INIT_DOC))
+  if (await fileExists(seam, projectDoc, exec.signal)) {
+    state.docs.push({ id: 'project', path: projectDoc, display: projectDoc })
+    return undefined
+  }
+  state.optedOut = await optedOut(seam, state.boundary, exec.signal)
+  if (state.optedOut || setsUpInit(call, state.boundary)) return undefined
+  return denyUninitialized(exec, call.kind, state.boundary, { repeats: countDenial(state, exec) })
+}
+
+/** Has the user opted this clone out? `.git` is a file in a worktree or a submodule. */
+async function optedOut(seam, boundary, signal) {
+  const dotGit = normalizePath(joinPath(boundary, '.git'))
+  let text
+  if (await fileExists(seam, dotGit, signal)) text = await seam.readText(dotGit).catch(() => '')
+  for (const path of optOutPaths(boundary, text)) {
+    if (await fileExists(seam, path, signal)) return true
+  }
+  return false
 }
 
 /**
@@ -296,7 +346,7 @@ async function holdsContent(state, doc, seam) {
  * Register the read-before-mutate gate.
  *
  * @param ctx - the cordis context.
- * @param config - optional `disabled` and `repoRoots`.
+ * @param config - optional `disabled`, `repoRoots` and `requireInit`.
  */
 export function apply(ctx, config = {}) {
   if (config.disabled === true) return
@@ -323,7 +373,9 @@ export function apply(ctx, config = {}) {
     ...(Array.isArray(config.repoRoots) ? config.repoRoots : []),
     ...defaultRepoRoots(),
   ]
-  const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], creditStore: creditStorePath, log })
+  // On unless the preset config or the environment switches it off.
+  const requireInit = config.requireInit !== false && process.env.DOCS_GATE_REQUIRE_INIT !== '0'
+  const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], creditStore: creditStorePath, requireInit, log })
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     try {

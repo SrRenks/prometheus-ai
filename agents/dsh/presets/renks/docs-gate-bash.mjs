@@ -237,11 +237,28 @@ function fsTargets(name, args) {
   return operands
 }
 
+/** The absolute path a word names, after `cd`; undefined when it cannot be known. */
+function resolvedPath(word, ctx) {
+  if (word.dynamic || word.value.startsWith('~')) return undefined
+  if (word.value.startsWith('/')) return normalizePath(word.value)
+  return ctx.base === undefined ? undefined : normalizePath(`${ctx.base}/${word.value}`)
+}
+
+/**
+ * A write to the in-workspace paths among `words`, or undefined when none is.
+ * Every such path is kept, resolved, with the command (`op`) that writes it:
+ * judging `touch .ai/x src/a.py` by its first operand let it pass as setup.
+ */
+function writeHit(kind, words, ctx, op) {
+  const inside = words.filter(word => writesInside(word, ctx))
+  if (inside.length === 0) return undefined
+  return { kind, target: inside[0].value, paths: inside.map(word => resolvedPath(word, ctx)), op }
+}
+
 /** A mutation of one of `files`, or of unknown files when none are named. */
-function editHit(kind, files, ctx) {
-  if (files.length === 0) return { kind, target: undefined }
-  const target = files.find(word => writesInside(word, ctx))
-  return target === undefined ? undefined : { kind, target: target.value }
+function editHit(kind, files, ctx, op) {
+  if (files.length === 0) return { kind, target: undefined, op }
+  return writeHit(kind, files, ctx, op)
 }
 
 /** The files `sed -i` edits: every operand once the script is accounted for. */
@@ -261,11 +278,12 @@ function sedFiles(args) {
  */
 function classifyCommand(command, words, ctx) {
   if (command.tooDeep) return { kind: 'unparsed', target: undefined }
-  for (const target of writeTargets(command)) {
-    if (writesInside(target, ctx)) return { kind: 'redirect', target: target.value }
-  }
-  if (words.length === 0) return undefined
-  return classifyWords(words, command, ctx)
+  // A redirect and the command's own write are both kept: `cp a b > log` writes two places.
+  const hits = [writeHit('redirect', writeTargets(command), ctx, 'redirect'), words.length > 0 ? classifyWords(words, command, ctx) : undefined]
+    .filter(Boolean)
+    .flatMap(hit => hit.hits ?? [hit])
+  if (hits.length === 0) return undefined
+  return hits.length === 1 ? hits[0] : { kind: hits[0].kind, target: hits[0].target, hits }
 }
 
 /** Classify a command by its name and arguments. */
@@ -274,10 +292,7 @@ function classifyWords(words, command, ctx) {
   const args = words.slice(1)
   if (name === 'xargs') return classifyXargs(args, command, ctx)
   if (name === 'find') return classifyFind(args, command, ctx)
-  if (name in FS_COMMANDS) {
-    const target = fsTargets(name, args).find(word => writesInside(word, ctx))
-    return target === undefined ? undefined : { kind: 'fs-write', target: target.value }
-  }
+  if (name in FS_COMMANDS) return writeHit('fs-write', fsTargets(name, args), ctx, name)
   return classifyEditor(name, args, ctx) ?? classifyTool(name, words, command, ctx)
 }
 
@@ -285,17 +300,17 @@ function classifyWords(words, command, ctx) {
 function classifyEditor(name, args, ctx) {
   if (name === 'dd') {
     const of = args.find(word => word.value.startsWith('of='))
-    return of === undefined ? undefined : editHit('fs-write', [{ ...of, value: of.value.slice(3) }], ctx)
+    return of === undefined ? undefined : editHit('fs-write', [{ ...of, value: of.value.slice(3) }], ctx, 'dd')
   }
   if (name === 'tee') {
     const files = positionals(args)
-    return files.length === 0 ? undefined : editHit('tee', files, ctx)
+    return files.length === 0 ? undefined : editHit('tee', files, ctx, 'tee')
   }
-  if (name === 'sed' && args.some(word => /^-[A-Za-z]*i|^--in-place/.test(word.value))) return editHit('in-place', sedFiles(args), ctx)
+  if (name === 'sed' && args.some(word => /^-[A-Za-z]*i|^--in-place/.test(word.value))) return editHit('in-place', sedFiles(args), ctx, 'sed')
   if (editsInPlace(name, args)) {
     const codeFlag = args.findIndex(word => /^-[A-Za-z]*[eE]$/.test(word.value))
     const files = positionals(args.filter((_, i) => i !== codeFlag + 1 || codeFlag < 0))
-    return editHit('in-place', interpreterOf(name) === 'awk' ? files.slice(1) : files, ctx)
+    return editHit('in-place', interpreterOf(name) === 'awk' ? files.slice(1) : files, ctx, name)
   }
   return undefined
 }

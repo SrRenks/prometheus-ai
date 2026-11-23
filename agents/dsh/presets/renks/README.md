@@ -14,9 +14,10 @@ install time from whatever dsh version is installed on the machine.
 | `docs-gate-target.mjs` | Paths: what counts as a target, and where the workspace boundary is. |
 | `docs-gate-shell.mjs` | A small shell reader: splits a `bash` command into simple commands, with redirects, heredoc bodies and substitutions, so text inside strings and code is never mistaken for a command. |
 | `docs-gate-bash.mjs` | Which of those commands mutate: git by subcommand and flags, file commands by their target paths, `cd` tracked per subshell, wrappers stripped, every mutation of a call returned so the tier covers all of them. |
+| `docs-gate-init.mjs` | The init check: a git workspace needs `.ai/project.md` (what `ai-init` creates) before its first change. Exempt: no VCS marker, the config checkout, `info/ai-optout` in the git directory, `requireInit: false` or `DOCS_GATE_REQUIRE_INIT=0`. |
 | `docs-gate-code.mjs` | Inline interpreter code: which interpreter runs, what code it runs (flag, heredoc or pipe), and a scan for write and process calls. |
 | `docs-gate-tiers.mjs` | The doc registry, the tiers, and which tier a mutation needs. |
-| `docs-gate.spec.mjs`, `docs-gate-tiers.spec.mjs`, `docs-gate-bash.spec.mjs`, `docs-gate-advice.spec.mjs` | Test suites: gate behaviour, the tier/language rules, bash classification on recorded command shapes, and the denial text. NOT installed. |
+| `docs-gate.spec.mjs`, `docs-gate-tiers.spec.mjs`, `docs-gate-bash.spec.mjs`, `docs-gate-advice.spec.mjs`, `docs-gate-init.spec.mjs` | Test suites: gate behaviour, the tier/language rules, bash classification on recorded command shapes, the denial text, and the init check. NOT installed. |
 | `docs-gate.testkit.mjs` | Fake fs seam, fake agent and waterfall driver shared by the spec. NOT installed. |
 | `skill-search.mjs` | Replaces the ~9KB skill-catalog injection with `skill_search` / `skill_load`. |
 | `preset.yml` | Name/description shown in `/preset`. |

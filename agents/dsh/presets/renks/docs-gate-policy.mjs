@@ -12,6 +12,7 @@
 
 export * from './docs-gate-target.mjs'
 export * from './docs-gate-bash.mjs'
+export * from './docs-gate-init.mjs'
 export * from './docs-gate-tiers.mjs'
 
 import { classifyBashCall, redirectTarget } from './docs-gate-bash.mjs'
@@ -26,6 +27,7 @@ import {
 } from './docs-gate-target.mjs'
 
 import { REQUIRED_DOCS } from './docs-gate-tiers.mjs'
+import { INIT_EXIT, uninitializedLines } from './docs-gate-init.mjs'
 
 /** Project-local doc required when the workspace has one. */
 const PROJECT_DOC_REPO_PATH = '.ai/project.md'
@@ -235,7 +237,7 @@ export function isBoundaryFailure(error) {
 }
 
 /** Probe one absolute path for a regular file. */
-async function fileExists(seam, path, signal) {
+export async function fileExists(seam, path, signal) {
   const info = await statOrUndefined(seam, path, signal)
   return info !== undefined && info.type === 'file'
 }
@@ -415,10 +417,11 @@ export function docLines(missing, partial, show) {
  * identical denials it names nothing else.
  *
  * @param repeats - how many times this exact call has been denied.
+ * @param exit - the way out this denial names.
  * @returns the advice lines.
  */
-export function gateAdvice(repeats) {
-  const lines = ['If one of these files cannot be read, tell the user what failed and stop. Do not make the change another way, through another tool, a shell redirect or an interpreter: those are gated too.']
+export function gateAdvice(repeats, exit = 'If one of these files cannot be read, tell the user what failed and stop. Do not make the change another way, through another tool, a shell redirect or an interpreter: those are gated too.') {
+  const lines = [exit]
   if (repeats >= REPEAT_LIMIT) {
     lines.unshift('', `This exact call has been denied ${repeats} times. Repeating it unchanged will not lift the gate: read the files above, or stop and ask the user.`)
   }
@@ -449,4 +452,17 @@ export function denyUnresolved(exec, kind, detail = '') {
       REQUIRED_DOCS.map(doc => `  - ~/.config/agent-config/${doc.repoPath}`).join('\n'),
     ].join('\n'),
   }
+}
+
+/**
+ * The denial for a change in a git workspace that has no `.ai/project.md`.
+ *
+ * @param exec - the denied call.
+ * @param kind - the mutation kind.
+ * @param boundary - the workspace root.
+ * @param options.repeats - how many times this exact call has been denied.
+ * @returns a `deny` decision.
+ */
+export function denyUninitialized(exec, kind, boundary, { repeats = 1 } = {}) {
+  return { kind: 'deny', reason: [...uninitializedLines(exec.name, kind, boundary), '', ...gateAdvice(repeats, INIT_EXIT)].join('\n') }
 }

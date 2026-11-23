@@ -418,3 +418,73 @@ function readWithStore(fx, store, paths) {
     hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path }, tool_response: {}, session_id: 'old' }, { DOCS_GATE_CREDIT_STORE: store })
   }
 }
+
+describe('init check', () => {
+  let fx
+  let fresh
+  beforeEach(() => {
+    fx = fixture()
+    fresh = join(fx.base, 'fresh')
+    mkdirSync(join(fresh, '.git'), { recursive: true })
+    for (const id of ['principles', ...CODE_TIER]) read(fx, fx.doc(id), { cwd: fresh })
+  })
+  const inFresh = (payload, env) => hook(fx, { ...payload, cwd: fresh }, env)
+
+  test('a change in a git repo with no .ai/project.md is denied with the ai-init steps', () => {
+    const r = inFresh(pre('Write', { file_path: join(fresh, 'README.md') }))
+    assert.ok(denied(r), r.stdout)
+    assert.match(reason(r), /has no \.ai\/project\.md/)
+    assert.match(reason(r), /If the user declines, stop/)
+  })
+
+  test('ai-init itself, reads and writes under .ai/ stay open', () => {
+    assert.ok(!denied(inFresh(pre('Bash', { command: 'ai-init' }))))
+    assert.ok(!denied(inFresh(pre('Bash', { command: 'git log --oneline -5' }))))
+    assert.ok(!denied(inFresh(pre('Write', { file_path: join(fresh, '.ai/project.md') }))))
+  })
+
+  test('creating .ai/project.md lifts it, and the doc is then required like the others', () => {
+    mkdirSync(join(fresh, '.ai'))
+    writeFileSync(join(fresh, '.ai/project.md'), '# p\n')
+    const r = inFresh(pre('Write', { file_path: join(fresh, 'README.md') }))
+    assert.ok(denied(r))
+    assert.doesNotMatch(reason(r), /has no \.ai/)
+    read(fx, join(fresh, '.ai/project.md'), { cwd: fresh })
+    assert.ok(!denied(inFresh(pre('Write', { file_path: join(fresh, 'README.md') }))))
+  })
+
+  test('the opt-out marker and DOCS_GATE_REQUIRE_INIT=0 switch it off', () => {
+    assert.ok(!denied(inFresh(pre('Write', { file_path: join(fresh, 'README.md') }), { DOCS_GATE_REQUIRE_INIT: '0' })))
+    mkdirSync(join(fresh, '.git/info'), { recursive: true })
+    writeFileSync(join(fresh, '.git/info/ai-optout'), '')
+    assert.ok(!denied(inFresh(pre('Write', { file_path: join(fresh, 'README.md') }))))
+  })
+
+  test('in a worktree the opt-out lives in the git directory .git points to', () => {
+    const main = join(fx.base, 'main')
+    const wt = join(fx.base, 'wt')
+    mkdirSync(join(main, '.git/worktrees/wt'), { recursive: true })
+    mkdirSync(wt)
+    writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git/worktrees/wt')}\n`)
+    const write = { ...pre('Write', { file_path: join(wt, 'README.md') }), cwd: wt }
+    assert.ok(denied(hook(fx, write)))
+    mkdirSync(join(main, '.git/info'), { recursive: true })
+    writeFileSync(join(main, '.git/info/ai-optout'), '')
+    assert.ok(!denied(hook(fx, write)))
+  })
+
+  test('a symlink under .ai/ cannot carry a setup write out of it', () => {
+    mkdirSync(join(fresh, '.ai'))
+    mkdirSync(join(fresh, 'src'))
+    symlinkSync(join(fresh, 'src'), join(fresh, '.ai/s'))
+    assert.ok(denied(inFresh(pre('Bash', { command: 'echo x > .ai/s/a.py' }))))
+    assert.ok(denied(inFresh(pre('Write', { file_path: join(fresh, '.ai/s/a.py') }))))
+    assert.ok(!denied(inFresh(pre('Write', { file_path: join(fresh, '.ai/project.md') }))))
+  })
+
+  test('session start in such a repo states the fact; an initialized one says nothing', () => {
+    const note = inFresh({ hook_event_name: 'SessionStart', source: 'startup' }).json?.hookSpecificOutput?.additionalContext ?? ''
+    assert.match(note, /no \.ai\/project\.md/)
+    assert.equal(hook(fx, { hook_event_name: 'SessionStart', source: 'startup' }).json, undefined)
+  })
+})

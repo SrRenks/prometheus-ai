@@ -199,7 +199,8 @@ export function mount({
       return fakeResolve(files)
     },
   }
-  apply(ctx, { repoRoots: [REPO], ...config })
+  // The init check has its own spec; the rest of the suite runs as initialized.
+  apply(ctx, { repoRoots: [REPO], requireInit: false, ...config })
 
   /** Run one waterfall: listeners outermost-first, then the built-in tail. */
   const call = async (name, exec, tail) => {
