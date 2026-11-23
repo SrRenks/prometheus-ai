@@ -30,7 +30,7 @@ The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [Lice
 
 | Tool | Source in this repo | Bridge installed by `setup.sh` |
 |---|---|---|
-| Claude Code | `agents/claude-code/` (CLAUDE.md, settings.json, hooks, rules, commands, claudeignore) plus `skills/` | `~/.claude/` |
+| Claude Code | `agents/claude-code/` (CLAUDE.md or CLAUDE.token.md, settings.json, hooks, rules, commands, claudeignore) plus `skills/` | `~/.claude/` |
 | Codex | `AGENTS.md` | `~/.codex/AGENTS.md` |
 | Gemini CLI | `agents/gemini/GEMINI.md` | `~/.gemini/GEMINI.md` |
 | Cursor | `agents/claude-code/rules/` (combined frontmatter) | `~/.cursor/rules` |
@@ -40,7 +40,10 @@ The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [Lice
 ## Requirements
 
 - `bash` and `git`.
-- `node` only for the preset YAML check inside `agents/dsh/install.sh`.
+- `node` for the Claude Code `docs-gate` hook and the preset YAML check inside
+  `agents/dsh/install.sh`.
+- `jq` for the `block-danger` and `lint-check` hooks. Without `node` or `jq` those
+  hooks let every call through, and `setup.sh` says so.
 - dsh itself, if you want the dsh preset; the rest of the config works without it.
 
 ## Install
@@ -49,8 +52,37 @@ The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [Lice
 git clone git@github.com:SrRenks/prometheus-ai.git ~/.config/agent-config
 cd ~/.config/agent-config
 ./setup.sh                    # tool bridges and the git identity include
+                              # add --mode token on pay-per-token billing, see below
 bash agents/dsh/install.sh    # dsh preset and shared skills (optional)
 ```
+
+### Two modes: subscription and token
+
+The rules reach Claude Code one of two ways, and `setup.sh --mode` picks which
+`CLAUDE.md` is linked into `~/.claude/`:
+
+| Mode | `~/.claude/CLAUDE.md` links to | What every session carries | Use it when |
+|---|---|---|---|
+| `subscription` (default) | `agents/claude-code/CLAUDE.md` | all of `AGENTS.md` plus `claude-code.md`, about 2.5K tokens | Claude Code on a flat-rate plan |
+| `token` | `agents/claude-code/CLAUDE.token.md` | a four-line pointer plus `claude-code.md` | Claude Code on an API key, or to save plan usage |
+
+Token mode is close to what the dsh preset does: only the pointer is injected, the
+agent is told where the rules are, and `docs-gate` denies a write until the
+tier's docs have been read. `AGENTS.md` itself is read because the pointer says
+so, not because the gate demands it. The hooks, skills and settings are the same in both modes. dsh is
+always in token mode through its own preset. Codex and Gemini get the full rules
+in both modes, because nothing in those tools enforces a read, so a pointer would
+leave them with no rules at all.
+
+```bash
+./setup.sh --mode token          # switch to token mode
+./setup.sh --mode subscription   # switch back
+./setup.sh                       # re-run, keeping whichever mode is linked
+```
+
+The link itself records the mode, so there is no state file to drift from what
+Claude Code loads. The Claude Code rules live once, in
+`agents/claude-code/claude-code.md`, and both CLAUDE files import it.
 
 `setup.sh` derives every path from its own location and is safe to re-run. A real
 file sitting where a symlink will go is copied to `backups/<timestamp>/` first, so
@@ -240,7 +272,7 @@ core/
   principles.md        universal agent principles
   templates/           .ai/ and project-docs skeletons
 agents/
-  claude-code/         CLAUDE.md, settings.json, hooks/, rules/, commands/
+  claude-code/         CLAUDE.md, CLAUDE.token.md, claude-code.md, settings.json, hooks/, rules/, commands/
   gemini/              GEMINI.md
   dsh/                 install.sh and presets/renks/
 tools/
@@ -636,17 +668,17 @@ Run before finishing any change to this config:
 for f in setup.sh ai-init ai-context agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
 for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done                # plugin syntax
 node --test 'agents/dsh/presets/renks/*.spec.mjs'                                  # gate behaviour and tiers
-node --test 'tools/*.spec.mjs'                                                     # stock resolver, helper parsers, Claude docs-gate, audit
+node --test 'tools/*.spec.mjs'                                                     # stock resolver, helper parsers, Claude docs-gate, audit, setup modes
 node tools/test-hooks.mjs                                                          # Claude Code hooks and their settings.json wiring
 node tools/build-preset-recipe.mjs --check                                         # preset recipe in sync with installed stock
 find . -type l ! -exec test -e {} \; -print                                        # broken symlinks
-python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/CLAUDE.md')))"  # injection budget
+python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/claude-code.md')))"  # injection budget
 ```
 
 Each check needs its own loop: `bash -n` and `node --check` only inspect the
 first file they are given. The last check needs `tiktoken` (`pip install
 tiktoken`), which is not a repo dependency. It measures what a first request
-carries: ~2467 tokens as of 2026-10-05 against the ~2.5K ceiling, so roughly 30
+carries in subscription mode: ~2467 tokens as of 2026-10-05 against the ~2.5K ceiling, so roughly 30
 tokens of slack (`core/docs/evals.md` records the method and the older reading).
 
 Skill frontmatter needs `name` and `description`, with `name` matching the

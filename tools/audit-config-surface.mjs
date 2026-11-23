@@ -176,7 +176,7 @@ const harnesses = [
   {
     name: 'Claude Code',
     wired: wired('.claude/CLAUDE.md'),
-    control: 'block-danger and lint-check hooks',
+    control: 'docs-gate, block-danger and lint-check hooks',
   },
   {
     name: 'Cursor',

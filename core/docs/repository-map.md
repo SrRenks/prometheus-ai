@@ -11,13 +11,13 @@ This config is READ-ONLY for agents. Projects do not copy it: `ai-init` creates 
 - `ai-init` - creates the project's `.ai/` directory (agents.md symlink, project.md, memory files, docs/) and gitignores it. → `~/.local/bin/ai-init`.
 - `ai-context` - generates `.ai/context/` topic files and the project README on demand. → `~/.local/bin/ai-context`.
 - `core/` - tool-free content: `core/docs/` (reference library), `core/principles.md`, `core/templates/`.
-- `agents/` - per-tool adapters: `claude-code/` (CLAUDE.md, CLAUDE.local.md, settings.json, hooks, rules, commands, claudeignore), `gemini/`, `dsh/`.
+- `agents/` - per-tool adapters: `claude-code/` (CLAUDE.md, CLAUDE.token.md, claude-code.md, CLAUDE.local.md, settings.json, hooks, rules, commands, claudeignore), `gemini/`, `dsh/`.
 - `tools/` - repo-maintenance scripts. `build-preset-recipe.mjs` regenerates the dsh preset's baseline, patch and fallback from the installed stock recipe, and `--check` reports drift.
 - `skills/` - shared procedures, symlinked to `~/.claude/skills` and `~/.dsh/skills`.
 
 ## Tool integrations - `agents/`
 - `agents/dsh/presets/renks/` - the DEFAULT dsh preset (mirrors the live roster `~/.dsh/.agent-presets/renks/`). Evidence-based instruction delivery: no full AGENTS.md digest and no skill-catalog injection; `docs-gate.mjs` (with `docs-gate-policy.mjs`, `docs-gate-target.mjs`, `docs-gate-tiers.mjs`, the credit rules in `docs-gate-credit.mjs`, the filesystem seam in `docs-gate-seam.mjs` and the harness `docs-gate.testkit.mjs`) DENIES mutating tool calls until the docs its selectors require have been read: `principles.md` for any change, the code-tier rules for source, the one language guide matching the changed file, and `git-workflow.md` only at the commit act (an audit of recorded sessions found about a tenth had read any core behavioural doc, so guidance became a precondition), and `skill-search.mjs` exposes `skill_search`/`skill_load`. Scale policy: search/load stays the default as the catalog grows; do not re-add catalog injection beyond ~3-5 skills.
-- `agents/claude-code/` - CLAUDE.md, settings.json, hooks, rules, commands (commands symlink to `skills/`).
+- `agents/claude-code/` - CLAUDE.md (subscription mode: imports AGENTS.md), CLAUDE.token.md (token mode: points at it), claude-code.md (the Claude Code rules both import), settings.json, hooks, rules, commands (commands symlink to `skills/`). `setup.sh --mode` picks which CLAUDE file is linked.
 - `agents/gemini/` - GEMINI.md wrapper.
 - `skills/` - shared procedures (plan, onboard, context, review, ci, ship, extend-config), symlinked to both `~/.dsh/skills` and `~/.claude/skills`.
 - The experimental `liangshen` preset (minimal-bootstrap anchoring) lives in `~/.dsh/.agent-presets/liangshen/` and is not tracked here.

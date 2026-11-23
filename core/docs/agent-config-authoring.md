@@ -63,7 +63,7 @@ Templates:
 - Frontmatter sweep: python3 -c "import yaml,pathlib; [yaml.safe_load(p.read_text()[3:p.read_text().find('\n---',3)]) for p in pathlib.Path('.').rglob('*.md') if p.read_text().startswith('---')]" returns without raising.
 - Symlinks: find . -type l ! -exec test -e {} \; -print must return nothing.
 - Hooks: the tool names a hook compares must match its matcher in agents/claude-code/settings.json. A mismatch in case makes the hook exit without doing anything, which stays invisible until someone traces it. Feed the hook a payload carrying the real tool name and confirm it reaches its work.
-- Injection budget: python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/CLAUDE.md')))" stays at or below 2500. tiktoken is not a repo dependency; any BPE encoder reads the same files within a few tokens.
+- Injection budget: python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/claude-code.md')))" stays at or below 2500. That is the subscription-mode injection; CLAUDE.md only imports those two files, and token mode drops AGENTS.md. tiktoken is not a repo dependency; any BPE encoder reads the same files within a few tokens.
 - Human-facing prose: scan against core/docs/ai-writing.md and fix the tells.
 - Provenance: every numeric threshold in the changed files has an entry in core/docs/sources.md; check with grep -rnE '[<>≤≥] ?[0-9]+' core/docs/*.md.
 
