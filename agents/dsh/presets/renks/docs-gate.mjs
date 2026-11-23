@@ -41,7 +41,7 @@
  * context.
  */
 
-import { createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
+import { coversWhole, createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
 import { createSeamFor } from './docs-gate-seam.mjs'
 import { loadStore, recordRead, seedLedger, storeEnabled } from './docs-gate-store.mjs'
 import {
@@ -90,6 +90,8 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
       state = {
         ledger: createLedger(), docs: undefined, root: undefined, boundary: undefined,
         pending: undefined, resolvedAt: undefined, failure: undefined,
+        // Denials per exact call, and docs read only in part: both feed the denial text.
+        denials: new Map(), partial: new Set(),
       }
       sessions.set(id, state)
     }
@@ -190,6 +192,13 @@ async function creditRead(store, agent, exec, seam) {
   } catch {
     return
   }
+  // A slice is not a read of the rules. It is remembered, so the next denial
+  // can say why this doc is still listed.
+  if (!coversWhole(exec.arguments, content)) {
+    state.partial.add(doc.id)
+    return
+  }
+  state.partial.delete(doc.id)
   const credited = state.ledger.record(exec, content, state.docs)
   // Written only on a real read, through the same fingerprint the ledger stores,
   // so the two cannot disagree about what was read.
@@ -257,7 +266,10 @@ async function gateCall(store, log, exec, next) {
     missing.push(doc)
   }
   if (missing.length === 0) return next()
-  return denyMutation(exec, call.kind, missing)
+  const key = `${exec.name}\0${JSON.stringify(exec.arguments)}`
+  const repeats = (state.denials.get(key) ?? 0) + 1
+  state.denials.set(key, repeats)
+  return denyMutation(exec, call.kind, missing, { repeats, partial: state.partial })
 }
 
 /**

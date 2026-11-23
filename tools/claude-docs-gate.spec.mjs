@@ -120,10 +120,56 @@ describe('denial and tiers', () => {
     assert.equal(r.code, 0)
   })
 
-  test('a partial read is a full credit, as in dsh', () => {
-    for (const id of CODE_TIER) read(fx, fx.doc(id), { tool_input: { file_path: fx.doc(id), offset: 1, limit: 1 } })
+  test('a read of part of a doc is not a credit, and both the read and the denial say so', () => {
+    // The fixture docs are three lines long, so a one-line limit is a slice.
+    const slices = CODE_TIER.map(id => read(fx, fx.doc(id), { tool_input: { file_path: fx.doc(id), offset: 1, limit: 1 } }))
+    for (const r of slices) assert.match(r.json?.hookSpecificOutput?.additionalContext ?? '', /read in part/)
     read(fx, join(fx.ws, '.ai/project.md'))
-    assert.ok(!denied(hook(fx, pre('Edit', { file_path: join(fx.ws, 'x.ts') }))))
+    const r = hook(fx, pre('Edit', { file_path: join(fx.ws, 'x.ts') }))
+    assert.ok(denied(r))
+    assert.match(reason(r), /read in part earlier/)
+    // A whole read lifts it, and a limit past the end counts as whole.
+    for (const id of CODE_TIER) read(fx, fx.doc(id), { tool_input: { file_path: fx.doc(id), limit: 2000 } })
+    const lifted = hook(fx, pre('Edit', { file_path: join(fx.ws, 'x.ts') }))
+    assert.ok(!denied(lifted), reason(lifted))
+  })
+
+  test('every denial names the stop exit, and the third identical one says to stop retrying', () => {
+    const call = pre('Write', { file_path: join(fx.ws, 'README.md') })
+    const first = hook(fx, call)
+    assert.match(reason(first), /tell the user what failed and stop/)
+    assert.doesNotMatch(reason(first), /denied \d+ times/)
+    hook(fx, call)
+    assert.match(reason(hook(fx, call)), /This exact call has been denied 3 times/)
+    assert.doesNotMatch(reason(hook(fx, pre('Write', { file_path: join(fx.ws, 'OTHER.md') }))), /denied \d+ times/)
+  })
+
+  test('an unwritable state directory still denies: the counter is best effort', { skip: process.getuid?.() === 0 }, () => {
+    const locked = join(fx.base, 'locked')
+    mkdirSync(locked)
+    spawnSync('chmod', ['555', locked])
+    try {
+      const r = hook(fx, pre('Bash', { command: 'touch x.py' }), { DOCS_GATE_STATE_DIR: join(locked, 'state') })
+      assert.ok(denied(r), r.stdout)
+    } finally {
+      spawnSync('chmod', ['755', locked])
+    }
+  })
+
+  test('token mode also requires AGENTS.md, which it no longer injects', () => {
+    writeFileSync(join(fx.cfg, 'AGENTS.md'), '# AGENTS\n')
+    const claudeDir = join(fx.base, 'claude')
+    mkdirSync(claudeDir)
+    writeFileSync(join(fx.base, 'CLAUDE.token.md'), 'pointer\n')
+    symlinkSync(join(fx.base, 'CLAUDE.token.md'), join(claudeDir, 'CLAUDE.md'))
+    const token = { CLAUDE_CONFIG_DIR: claudeDir }
+    const write = pre('Write', { file_path: join(fx.ws, 'README.md') })
+    assert.ok(reason(hook(fx, write, token)).includes(join(fx.cfg, 'AGENTS.md')))
+    assert.ok(!reason(hook(fx, write)).includes('AGENTS.md'), 'subscription mode injects it, so it is not gated')
+    readAll(fx, ['principles'], {})
+    assert.ok(denied(hook(fx, write, token)))
+    hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: join(fx.cfg, 'AGENTS.md') }, tool_response: {} }, token)
+    assert.ok(!denied(hook(fx, write, token)))
   })
 
   test('a doc edited after the read loses its credit', () => {

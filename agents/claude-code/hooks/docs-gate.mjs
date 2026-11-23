@@ -37,12 +37,15 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { coversWhole } from '../../dsh/presets/renks/docs-gate-credit.mjs'
 import {
   classifyCall,
   defaultRepoRoots,
   denyUnresolved,
   describeError,
+  docLines,
   findWorkspaceRoot,
+  gateAdvice,
   isCodingError,
   normalizePath,
   requiredDocsFor,
@@ -100,10 +103,29 @@ function realOrSelf(path) {
 async function resolveDocs(cwd, env) {
   const found = await findWorkspaceRoot(seam, cwd)
   const root = found.root === undefined ? undefined : normalizePath(found.root)
-  const { configDocs, projectDocs } = await resolveRequiredDocs({
+  const { configDocs, projectDocs, repoRoot } = await resolveRequiredDocs({
     seam, workspaceRoot: root, repoRoots: defaultRepoRoots(env),
   })
-  return { boundary: found.found === true ? root : undefined, docs: [...configDocs, ...projectDocs] }
+  const docs = [...configDocs, ...projectDocs]
+  // Token mode injects a pointer instead of AGENTS.md, so the gate is what makes
+  // sure the agent saw Section 0 before it changed anything.
+  const agents = repoRoot === undefined ? undefined : join(repoRoot, 'AGENTS.md')
+  if (agents !== undefined && configDocs.length > 0 && tokenMode(env) && readText(agents) !== undefined) {
+    docs.unshift({ id: 'agents', path: agents, display: '~/.config/agent-config/AGENTS.md', tier: 'core' })
+  }
+  return { boundary: found.found === true ? root : undefined, docs }
+}
+
+/** Is Claude Code linked to the token-mode CLAUDE.md, which does not import AGENTS.md? */
+function tokenMode(env) {
+  if (env.DOCS_GATE_REQUIRE_AGENTS === '1') return true
+  if (env.DOCS_GATE_REQUIRE_AGENTS === '0') return false
+  return realOrSelf(join(claudeDirOf(env), 'CLAUDE.md')).endsWith('CLAUDE.token.md')
+}
+
+/** The Claude Code config directory. */
+function claudeDirOf(env) {
+  return env.CLAUDE_CONFIG_DIR ?? join(env.HOME ?? homedir(), '.claude')
 }
 
 /** A PreToolUse denial carrying the reason Claude reads. */
@@ -112,14 +134,15 @@ function deny(reason) {
 }
 
 /** The denial for docs this session has not read. */
-function missingReason(toolName, kind, missing) {
+function missingReason(toolName, kind, missing, { repeats, partial }) {
   return [
     `${toolName} is blocked by docs-gate (${kind}): this session has not read the rules this change needs.`,
     '',
     'Read each file below with the Read tool, then retry. The gate lifts as the reads land; a cat of the whole file counts too:',
-    missing.map(doc => `  - ${doc.path}`).join('\n'),
+    docLines(missing, partial, doc => doc.path),
     '',
     'The shared config is the source of truth for coding standards and the git workflow. Read them even if the task looks routine.',
+    ...gateAdvice(repeats),
   ].join('\n')
 }
 
@@ -163,7 +186,11 @@ async function preToolUse(input, ctx) {
   const reused = []
   const required = requiredDocsFor(call, exec.arguments.command, resolved.docs)
   const missing = required.filter(doc => !holdsNow(ctx, doc, reused))
-  const out = missing.length > 0 ? deny(missingReason(input.tool_name, call.kind, missing)) : {}
+  let out = {}
+  if (missing.length > 0) {
+    const repeats = ctx.ledger.bumpDenial(`${input.tool_name}\0${JSON.stringify(input.tool_input ?? {})}`)
+    out = deny(missingReason(input.tool_name, call.kind, missing, { repeats, partial: ctx.ledger.partialIds() }))
+  }
   if (reused.length > 0) out.systemMessage = `docs-gate credit store: reused ${reused.length} read(s): ${reused.join(', ')}`
   return out
 }
@@ -182,17 +209,32 @@ function docAt(docs, path) {
   return docs.find(doc => doc.path === absolute || realOrSelf(doc.path) === real)
 }
 
+/**
+ * Credit a Read of a gated doc, unless it covered only part of the file.
+ *
+ * A slice is said at once, as a fact next to the tool result, so the agent
+ * learns it before the next write is denied for it.
+ */
+function creditRead(input, ctx, docs) {
+  const path = input.tool_input?.file_path
+  const doc = typeof path === 'string' && path.startsWith('/') ? docAt(docs, path) : undefined
+  const content = doc === undefined ? undefined : readText(doc.path)
+  if (content === undefined) return {}
+  const whole = coversWhole(input.tool_input, content)
+  ctx.ledger.markPartial(doc, !whole)
+  if (whole) {
+    credit(ctx, doc, content)
+    return {}
+  }
+  const note = `docs-gate: ${doc.path} was read in part (offset or limit set), so it is not credited. A gated change needs the whole file read once.`
+  return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: note } }
+}
+
 /** PostToolUse: credit a successful Read, or a Bash whose stdout holds a whole doc. */
 async function postToolUse(input, ctx) {
   const resolved = await resolveDocs(ctx.cwd, ctx.env).catch(() => undefined)
   if (resolved === undefined) return {}
-  if (input.tool_name === 'Read') {
-    const path = input.tool_input?.file_path
-    const doc = typeof path === 'string' && path.startsWith('/') ? docAt(resolved.docs, path) : undefined
-    const content = doc === undefined ? undefined : readText(doc.path)
-    if (content !== undefined) credit(ctx, doc, content)
-    return {}
-  }
+  if (input.tool_name === 'Read') return creditRead(input, ctx, resolved.docs)
   const stdout = input.tool_response?.stdout
   if (input.tool_name !== 'Bash' || typeof stdout !== 'string' || stdout.length === 0) return {}
   for (const doc of resolved.docs) {

@@ -95,8 +95,56 @@ export function openLedger(stateDir, session) {
     compacted() {
       return existsSync(join(dir, COMPACTED))
     },
+    /**
+     * Count one more denial of an exact call and return the total. Racing
+     * hooks may lose an increment; the count only steers the denial text.
+     */
+    bumpDenial(key) {
+      const file = join(dir, `${DENIAL_PREFIX}${fingerprint(key).slice(0, 32)}`)
+      let count = 0
+      try {
+        count = Number(readFileSync(file, 'utf8')) || 0
+      } catch {
+        // First denial of this call.
+      }
+      // Best effort. It runs on the deny path, and a throw there reaches the
+      // fail-open handler: an unwritable state dir must not turn a deny into an
+      // allow.
+      try {
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(file, String(count + 1))
+      } catch {
+        // The count only steers the denial text.
+      }
+      return count + 1
+    },
+    /** Remember, or forget, that a doc was read only in part. Best effort. */
+    markPartial(doc, partial) {
+      const file = join(dir, `${PARTIAL_PREFIX}${docKey(doc.id)}`)
+      try {
+        if (!partial) rmSync(file, { force: true })
+        else {
+          mkdirSync(dir, { recursive: true })
+          writeFileSync(file, '')
+        }
+      } catch {
+        // A lost marker only drops the note from the next denial.
+      }
+    },
+    /** Ids of the docs this session read only in part. */
+    partialIds() {
+      try {
+        return new Set(readdirSync(dir).filter(name => name.startsWith(PARTIAL_PREFIX)).map(name => decodeURIComponent(name.slice(PARTIAL_PREFIX.length))))
+      } catch {
+        return new Set()
+      }
+    },
   }
 }
+
+/** File-name prefixes for the denial counters and the partial-read markers. */
+const DENIAL_PREFIX = '.denied-'
+const PARTIAL_PREFIX = '.partial-'
 
 /**
  * Run `fn` while holding a lock beside `path`, across processes.

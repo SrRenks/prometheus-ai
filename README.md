@@ -550,11 +550,37 @@ Claude Code gets three hooks, wired in `agents/claude-code/settings.json`:
   things differ from dsh. A hook is a new process per call, so the credits live
   on disk under `~/.claude/state/docs-gate/<session>/`, one file per doc.
   Compaction and `/clear` reset them, the optional store included, because a
-  compacted session holds a summary of the rules and not the rules. A `cat` of a whole doc counts as a read, but only when
-  the doc's full current content is in the command's stdout. And the denial
-  lists absolute paths, which the Read tool takes as written.
+  compacted session holds a summary of the rules and not the rules. A `cat` of
+  a whole doc counts as a read, but only when the doc's full current content is
+  in the command's stdout. And the denial lists absolute paths, which the Read
+  tool takes as written. In token mode `AGENTS.md` joins the required set,
+  because that mode no longer injects it.
   `DOCS_GATE_DISABLED=1` turns it off; `DOCS_GATE_CREDIT_STORE=<path>` turns on
   the cross-session store, off by default for the reason the preset README gives.
+
+  How both harnesses judge a Bash command. It is parsed into simple commands
+  (`docs-gate-shell.mjs`), so words inside strings, heredoc bodies and comments
+  are text. git counts by subcommand and flags: `git log`, `git merge-base`,
+  `git tag -l` and `git stash list` pass, `git commit`, `git switch` and
+  `git tag v1` do not. File commands and redirects count only when the target is
+  inside the workspace, after any `cd`, so `mkdir -p /tmp/x` passes. Inline
+  interpreter code (`python -c`, `python - <<EOF`, `node -e`, `bash -c`) is
+  scanned for write and process calls, and shell code (`bash -c`, `echo ... | sh`)
+  is parsed like the rest; a program piped in from somewhere unreadable, such as
+  `curl ... | sh`, counts as a write. That scan is a tripwire, not a sandbox, and
+  a script file is not read at all. A command that does several things needs the
+  docs of all of them, so `rm a.txt && git commit` asks for the code tier and the
+  commit docs. Replayed over the 241 `bash` calls the old regex classifier denied
+  in recorded dsh sessions, 167 were queries and now pass; the 74 still denied
+  write to the workspace or run a process.
+
+  Three things keep a denial from turning into a loop. A Read with `offset` or
+  `limit` that misses part of a doc is not a credit, and Claude is told so next
+  to the tool result. Every denial ends by naming the exit, tell the user and
+  stop, and says writing another way is gated too; that wording comes from a
+  measured study in which only "report and stop" brought circumvention to zero
+  (`core/docs/sources.md`). The third identical denial of a call says that
+  retrying it unchanged will not help.
 - `block-danger` runs before a Bash call and denies a fixed list: a recursive
   forced `rm` (combined, split, quoted or trailing flags), `sudo`, a force push
   (`-f`, `--force`, or a `+ref` refspec), `chmod 777`, raw disk writes (`dd`,

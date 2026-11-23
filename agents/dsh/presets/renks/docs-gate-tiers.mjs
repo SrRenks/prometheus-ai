@@ -16,6 +16,7 @@
  * attributed all fall through to `code`, because over-gating is visible in the
  * denial while under-gating is silent.
  */
+import { isCommitAct } from './docs-gate-bash.mjs'
 
 /**
  * The behavioural doc set, single-sourced from the shared config repo, tiered
@@ -175,12 +176,9 @@ export function requiredTier(kind, target, { commits = false } = {}) {
  * @returns true when the command is a commit-class act.
  */
 export function isCommitCommand(command) {
-  if (typeof command !== 'string' || command.length === 0) return false
-  return COMMIT_COMMAND_RE.test(command)
+  // Parsed, not matched: `git merge-base` is a query, and `git tag -l` lists.
+  return isCommitAct(command)
 }
-
-/** Commit-class git invocations: the acts `git-workflow.md` governs. */
-const COMMIT_COMMAND_RE = /\bgit\s+(?:commit|push|merge|rebase|cherry-pick|tag)\b|\bgh\s+pr\s+(?:create|merge)\b|\blazygit\b/
 
 /**
  * The docs a call must satisfy, from three independent selectors.
@@ -244,12 +242,20 @@ const COMMIT_KINDS = new Set(['git-write', 'gh-write', 'lazygit'])
  * computed first because it also tells the ladder not to climb, and the ceiling
  * keeps a checkout that lacks the code-tier files from gating on them.
  *
- * @param call - `{ kind, target }` from `classifyCall`.
+ * A `bash` call can do several things at once. Its `hits` are unioned, so
+ * `rm a.txt && git commit` needs the code tier for the removal AND the commit
+ * docs for the commit; judging by the first mutation alone dropped the latter.
+ *
+ * @param call - `{ kind, target, hits? }` from `classifyCall`.
  * @param command - the raw `bash` command, when the call is one.
  * @param docs - the docs that exist for this session.
  * @returns the subset of `docs` that must be held before the call may run.
  */
 export function requiredDocsFor(call, command, docs) {
+  if (Array.isArray(call.hits) && call.hits.length > 1) {
+    const ids = new Set(call.hits.flatMap(hit => requiredDocsFor({ kind: hit.kind, target: hit.target }, command, docs).map(doc => doc.id)))
+    return docs.filter(doc => ids.has(doc.id))
+  }
   const commits = COMMIT_KINDS.has(call.kind) && isCommitCommand(command)
   const wanted = requiredTier(call.kind, call.target, { commits })
   const ceiling = tierCeiling(docs)
