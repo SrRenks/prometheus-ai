@@ -42,7 +42,7 @@ context/ holds the project knowledge base: internal context future agents need (
 3. Content style: direct, imperative orders. Never write "context {describe here}" templates - write actual rules.
 4. `agents.md` is a symlink to `~/.config/agent-config/AGENTS.md` - never edit it (the shared config is READ-ONLY). Project rules live in `project.md`: imperative, placeholder-free directives, build/test/lint commands first.
 5. `.ai/` is created by `ai-init`. Keep it current with this standard.
-6. Never commit `.ai/` - the `.gitignore` entry is part of the setup.
+6. Never commit `.ai/` - `ai-init` ignores it in `.git/info/exclude`, which is local to the clone, so a team repository's `.gitignore` is not edited. What the whole team should share goes in a short committed `./AGENTS.md` (`ai-init --team`): commands and conventions the code does not show.
 
 ## When to add a `.ai/docs/` file
 - When a project-specific convention must be documented (git workflow, stack rules, processes).

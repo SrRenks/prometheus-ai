@@ -16,7 +16,7 @@ project's `.ai/` directory; shared rules stay project-agnostic.
 
 Getting it running: [Supported tools](#supported-tools) · [Requirements](#requirements) · [Install](#install)
 
-How it works: [The `.ai/` directory](#the-ai-directory) · [Repository layout](#repository-layout) · [How one config reaches every tool](#how-one-config-reaches-every-tool) · [dsh and the `renks` preset](#dsh-and-the-renks-preset) · [What agents are told](#what-agents-are-told) · [The workflow](#the-workflow)
+How it works: [The `.ai/` directory](#the-ai-directory) · [Repository layout](#repository-layout) · [How one config reaches every tool](#how-one-config-reaches-every-tool) · [dsh and the `renks` preset](#dsh-and-the-renks-preset) · [What agents are told](#what-agents-are-told) · [The workflow](#the-workflow) · [How this setup compares with the evidence](#how-this-setup-compares-with-the-evidence)
 
 What holds the rules in place: [Guardrails](#guardrails) · [Reference docs](#reference-docs)
 
@@ -210,7 +210,9 @@ read-only model. The shared config holds what is true for all projects, and
 
 ```bash
 cd ~/Projects/my-app
-ai-init      # creates .ai/, links ./AGENTS.md, adds the .gitignore entry
+ai-init      # creates .ai/ and ignores it in .git/info/exclude (local, never committed)
+ai-init --team         # also writes a short ./AGENTS.md for the team to commit
+ai-init --link-agents  # links ./AGENTS.md to the shared rules, for Cursor only
 ai-context   # writes context topic files and the project README, once the project has content
 ```
 
@@ -230,11 +232,29 @@ How it behaves:
 
 - The shared rules arrive by symlink. Editing `AGENTS.md` here updates
   `.ai/agents.md` in every project at once, and no project keeps a copy to drift.
-- `ai-init` also links `./AGENTS.md` in the project root, which is the path Codex,
-  Cursor, Windsurf, Amp, Jules, and Claude Code look for.
-- `.ai/` stays out of git. `ai-init` writes the entry into the project's
-  `.gitignore`, so project knowledge never enters the repository's history and
-  never reaches a teammate who does not need it.
+- A project is set up before its first change. In a git repository with no
+  `.ai/project.md`, `docs-gate` denies changes in both dsh and Claude Code and
+  names the steps: classify the project, ask the user to approve `ai-init`, run
+  it. Reading and exploring stay open, so do writes that only create files
+  under `.ai/` (`ln`, `mv` and `rm` do not count, and a symlink cannot carry a
+  write out), and Claude Code says so when a new session starts. Folders without
+  git, this config checkout, a clone opted out with
+  `touch "$(git rev-parse --git-path info/ai-optout)"` (it works in worktrees and
+  submodules too) and `DOCS_GATE_REQUIRE_INIT=0` are exempt. Run from a
+  subdirectory, `ai-init` sets up the repository root. The check requires `ai-init`, not the
+  whole onboarding survey; the next section says why.
+- `.ai/` stays out of git without touching the repository. `ai-init` writes the
+  ignore entry to `.git/info/exclude`, which belongs to the clone and is never
+  committed, so one person's agent files do not show up as a change to the
+  team's `.gitignore`.
+- `ai-init` no longer links `./AGENTS.md` into the project. Claude Code (2.1.277
+  and later) loads a project `AGENTS.md` whenever the project has no `CLAUDE.md`,
+  so the link put the whole shared rule set back into token-mode sessions, and
+  every harness except Cursor already gets the shared rules from its user-level
+  config. `--link-agents` keeps the link for Cursor.
+- `ai-init --team` writes a short `./AGENTS.md` meant to be committed: the
+  commands and the conventions the code does not show, for teammates and CI
+  agents. It stays separate from `.ai/`, which is personal working memory.
 - `ai-init` records project maturity. It reads git history and build files and
   stamps the result (NEW or EXISTING) into `context/index.md`, which decides
   whether the agent onboards first or starts building.
@@ -295,8 +315,10 @@ adapters, the reference library, and the templates.
   symlinks into this directory.
 - Files in `agents/claude-code/rules/` carry `description` with `globs` for
   Cursor and `paths` for Claude Code, so one file serves both.
-- `ai-init` links `./AGENTS.md` into each project, which is the path Codex,
-  Cursor, Windsurf, Amp, Jules, and Claude Code look for.
+- Each harness gets the shared rules from its own user-level config:
+  `~/.claude`, `~/.codex`, `~/.gemini`, `~/.dsh`. A project gets a `./AGENTS.md`
+  only when asked: a committed team file (`ai-init --team`) or, for Cursor, a link
+  (`ai-init --link-agents`).
 - Editing a rule and pulling updates every tool and every project, because the
   bridges are symlinks. Only the dsh preset needs its installer re-run.
 
@@ -511,6 +533,28 @@ method that entry evolved from: three phases, each ending in a gate.
 The separate context is the point of the review step: a reviewer working from the
 same session inherits the author's assumptions.
 
+## How this setup compares with the evidence
+
+Checked on 2026-11-23 against vendor guidance, two controlled studies and the
+practitioners most cited for agent workflows. The entries, with links, are in
+`core/docs/sources.md` under "Agent context files" and "Practitioner sources".
+
+| Choice | What the evidence says | Status here |
+|---|---|---|
+| Plan gate, test-first, fresh-context review | Supported by Anthropic's best practices, Addy Osmani, Harper Reed and Kent Beck; TDFlow reached 88.8% on SWE-bench Lite with human-written tests | kept |
+| Hooks for rules that must hold | Anthropic: use a hook when a rule keeps being missed, and keep the enforced set small | kept, see Guardrails |
+| One short global file plus repo-level context | The AGENTS.md standard and Claude Code, Codex and Gemini all layer a user file under a repo file | kept |
+| Forcing a full onboarding survey before the first change | The ETH Zurich study of context files (ICLR 2026) found pushed exploration raised cost by about a fifth without raising success | dropped: only `ai-init` is required, and the survey covers what the task touches |
+| Context written by an LLM | Same study: generated files moved success by -0.5 to -2 points, not significant, and cost 20 to 23% more; human-written ones beat generated ones by 7 points | topic files stay question lists, and the docs say to record only what the code does not show |
+| Keeping project rules uncommitted | Every vendor, and Thoughtworks' Technology Radar at Adopt, commits a short repo file for the team | `.ai/` stays local as working memory; `ai-init --team` adds the committed file |
+| A gate that makes agents read the rules | Called deferred eager loading by the review this table comes from; against it, agents opened the policy file in 3.5% of unprompted runs and complied with read instructions 0% of the time in the studies cited under Guardrails | kept, with the cost measured (`node tools/verify-docs-gate.mjs`) |
+
+The two studies disagree in places. Lulla et al. found an `AGENTS.md` cut runtime
+by 28.6% and output tokens by 16.6% at similar completion, where the ETH study
+measured higher cost. Neither covers this repository's tasks, which is why
+`core/docs/evals.md` keeps a retained task set; running it with and without the
+context is the open measurement.
+
 ## Guardrails
 
 The same rule is enforced differently per tool, because what a harness can
@@ -554,7 +598,9 @@ Claude Code gets three hooks, wired in `agents/claude-code/settings.json`:
   a whole doc counts as a read, but only when the doc's full current content is
   in the command's stdout. And the denial lists absolute paths, which the Read
   tool takes as written. In token mode `AGENTS.md` joins the required set,
-  because that mode no longer injects it.
+  because that mode no longer injects it. In a git repository with no
+  `.ai/project.md` the first denial asks for `ai-init` instead, as described
+  under "The `.ai/` directory".
   `DOCS_GATE_DISABLED=1` turns it off; `DOCS_GATE_CREDIT_STORE=<path>` turns on
   the cross-session store, off by default for the reason the preset README gives.
 
@@ -708,9 +754,9 @@ python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); prin
 Each check needs its own loop: `bash -n` and `node --check` only inspect the
 first file they are given. The last check needs `tiktoken` (`pip install
 tiktoken`), which is not a repo dependency. It measures what a first request
-carries in subscription mode: 2478 tokens on o200k_base as of 2026-11-23 (AGENTS.md
-2282, `claude-code.md` 165, the import lines of `CLAUDE.md` 31) against the 2.5K
-ceiling, so 22 tokens of slack. Token mode carries 293 (`core/docs/evals.md`
+carries in subscription mode: 2485 tokens on o200k_base as of 2026-11-23 (AGENTS.md
+2289, `claude-code.md` 165, the import lines of `CLAUDE.md` 31) against the 2.5K
+ceiling, so 15 tokens of slack. Token mode carries 293 (`core/docs/evals.md`
 records the method and the older readings).
 
 Skill frontmatter needs `name` and `description`, with `name` matching the

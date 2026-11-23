@@ -274,6 +274,8 @@ write_architecture() {
 # Architecture (Internal)
 
 How the system is structured and how data flows. $committed
+Record what the code does not show - intent, boundaries that must hold, why a
+seam exists. A module overview an agent can derive costs context without helping.
 
 ## Open questions
 - Which modules/components exist and how do they depend on each other?

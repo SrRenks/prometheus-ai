@@ -1,10 +1,36 @@
 #!/usr/bin/env bash
 # ai-init - Create the project's .ai/ agent directory, ready to use.
 # .ai/agents.md is a symlink to the shared config (updates propagate to all
-# projects); the rest are real project files. All gitignored, never committed.
+# projects); the rest are real project files. Ignored through .git/info/exclude,
+# which is local to the clone, so a team repository's tracked files are untouched.
 # Project context (.ai/context/) and README.md are generated ON DEMAND by
 # `ai-context` - never copied as generic templates.
+#
+# Usage: ai-init [--team | --link-agents]
+#   --team         also write a short ./AGENTS.md meant to be COMMITTED: the
+#                  repository's commands and the conventions the code does not
+#                  show, for the team and for CI agents.
+#   --link-agents  link ./AGENTS.md to the shared rules, for tools that only read
+#                  a project AGENTS.md (Cursor). Not the default: Claude Code
+#                  loads a project AGENTS.md when there is no CLAUDE.md, which
+#                  would undo token mode, and every other harness already gets the
+#                  shared rules from its user-level config.
 set -euo pipefail
+
+TEAM=0
+LINK_AGENTS=0
+for arg in "$@"; do
+    case "$arg" in
+        --team) TEAM=1 ;;
+        --link-agents) LINK_AGENTS=1 ;;
+        -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "ai-init: unknown argument: $arg" >&2; exit 2 ;;
+    esac
+done
+if [ "$TEAM" = 1 ] && [ "$LINK_AGENTS" = 1 ]; then
+    echo "ai-init: --team writes a real ./AGENTS.md and --link-agents a symlink there; pick one" >&2
+    exit 2
+fi
 
 # Config root, resolved from this script's own location so the repo works from
 # any clone path. setup.sh symlinks this script into ~/.local/bin, hence the
@@ -16,6 +42,13 @@ while [ -L "$SELF" ] && [ "$_hops" -lt 40 ]; do
 done
 CONFIG="${AGENT_CONFIG_DIR:-$(cd "$(dirname "$SELF")" && pwd)}"
 PROJECT="$(pwd)"
+# Inside a repository the root is the project: the gate looks for
+# <root>/.ai/project.md, and the ignore entries are anchored there.
+if TOP="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$TOP" ]; then
+    [ "$TOP" != "$PROJECT" ] && echo "  note: setting up the repository root, $TOP"
+    PROJECT="$TOP"
+    cd "$PROJECT"
+fi
 
 if [ ! -d "$CONFIG" ]; then
     echo "error: config not found at $CONFIG. Run setup.sh first, or set AGENT_CONFIG_DIR." >&2
@@ -34,12 +67,34 @@ else
     echo "  linked: .ai/agents.md -> $CONFIG/AGENTS.md"
 fi
 
-# ── Repo-root AGENTS.md: the path every AGENTS.md-reading tool looks for ──
-if [ -e "$PROJECT/AGENTS.md" ] && [ ! -L "$PROJECT/AGENTS.md" ]; then
-    echo "  skip: ./AGENTS.md is a real file - leave it; your rules stay in .ai/"
-elif [ ! -e "$PROJECT/AGENTS.md" ]; then
-    ln -sfn "$CONFIG/AGENTS.md" "$PROJECT/AGENTS.md"
-    echo "  linked: ./AGENTS.md -> shared config (Codex, Cursor, Windsurf, Amp, Jules, Claude Code)"
+# ── Repo-root AGENTS.md: only on request (see the usage note above) ──
+LINKED_AGENTS=0
+if [ "$TEAM" = 1 ]; then
+    if [ -L "$PROJECT/AGENTS.md" ]; then
+        # An old ai-init link to the shared rules, or a dangling one: editing it
+        # would edit the shared config, so it is replaced. Any other link is left.
+        LT="$(readlink "$PROJECT/AGENTS.md")"
+        if [ "$LT" = "$CONFIG/AGENTS.md" ] || [ ! -e "$PROJECT/AGENTS.md" ]; then
+            rm "$PROJECT/AGENTS.md"
+            cp "$CONFIG/core/templates/team-agents.md" "$PROJECT/AGENTS.md"
+            echo "  replaced: ./AGENTS.md was a link to $LT; now a team file to commit"
+        else
+            echo "  skip: ./AGENTS.md is a link to $LT - not replaced"
+        fi
+    elif [ -e "$PROJECT/AGENTS.md" ]; then
+        echo "  skip: ./AGENTS.md exists - edit it instead"
+    else
+        cp "$CONFIG/core/templates/team-agents.md" "$PROJECT/AGENTS.md"
+        echo "  created: ./AGENTS.md (commit it; keep it short and human-written)"
+    fi
+elif [ "$LINK_AGENTS" = 1 ]; then
+    if [ -e "$PROJECT/AGENTS.md" ] && [ ! -L "$PROJECT/AGENTS.md" ]; then
+        echo "  skip: ./AGENTS.md is a real file - leave it; your rules stay in .ai/"
+    else
+        ln -sfn "$CONFIG/AGENTS.md" "$PROJECT/AGENTS.md"
+        LINKED_AGENTS=1
+        echo "  linked: ./AGENTS.md -> shared config (for Cursor)"
+    fi
 fi
 
 # ── Project context files (real files, project-owned) ──
@@ -90,18 +145,22 @@ else
     echo "  skip: .ai/context/index.md exists"
 fi
 
-# ── gitignore: .ai/ stays out of the repo ──
-GI="$PROJECT/.gitignore"
-if [ -f "$GI" ]; then
-    if grep -qxF ".ai/" "$GI"; then
-        :
-    else
-        printf '%s\n' "" "# AI agent directory (per-project knowledge - never committed)" ".ai/" >> "$GI"
-        echo "  .gitignore: added .ai/"
-    fi
+# ── Ignore, locally: .git/info/exclude is never committed, so a team repo's
+#    .gitignore is not edited for one person's agent files ──
+exclude_add() {
+    grep -qxF "$1" "$EXCLUDE" 2>/dev/null && return
+    # A last line without a newline would swallow the entry: `*.log.ai/`.
+    if [ -s "$EXCLUDE" ] && [ -n "$(tail -c1 "$EXCLUDE")" ]; then printf '\n' >> "$EXCLUDE"; fi
+    printf '%s\n' "$1" >> "$EXCLUDE"
+    echo "  .git/info/exclude: added $1"
+}
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    EXCLUDE="$(git rev-parse --path-format=absolute --git-path info/exclude)"
+    mkdir -p "$(dirname "$EXCLUDE")"
+    exclude_add ".ai/"
+    [ "$LINKED_AGENTS" = 1 ] && exclude_add "/AGENTS.md"
 else
-    printf '%s\n' "# AI agent directory (per-project knowledge - never committed)" ".ai/" > "$GI"
-    echo "  .gitignore: created with .ai/ entry"
+    echo "  not a git repository: nothing to ignore"
 fi
 
 echo ""

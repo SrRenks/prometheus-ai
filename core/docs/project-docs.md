@@ -2,7 +2,7 @@
 
 Defines the committed documentation of a project: root-level entry files and the
 `docs/` directory. Deep technical documentation belongs here; agent/AI configuration
-never does (it lives in `.ai/`, gitignored).
+never does (it lives in `.ai/`, ignored locally through `.git/info/exclude`).
 
 This standard encodes Diátaxis, Docs as Code, Keep a Changelog, and
 MkDocs/Docusaurus conventions as a single baseline.
@@ -86,7 +86,7 @@ Apply these principles when creating or modifying any committed doc.
 - Committed docs (`docs/`, `README.md`, `CHANGELOG.md`) are for humans and
   describe only the project itself. Never reference `.ai/`, agent configuration,
   AI tooling, or agent workflow. The `.ai/` directory is an isolated space for
-  agent instructions - gitignored and never mentioned in production documentation.
+  agent instructions - ignored locally and never mentioned in production documentation.
 - Cross-references between committed docs and `.ai/` are forbidden in both
   directions. Human docs discuss the project; agent docs discuss how to build it.
 
