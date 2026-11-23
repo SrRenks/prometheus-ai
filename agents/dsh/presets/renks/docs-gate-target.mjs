@@ -112,8 +112,15 @@ const BASH_WRITE_PATTERNS = [
   { id: 'build-write', re: /\b(?:make|cmake|ninja|gradle|mvn)\b[^\n;|&]*\b(?:build|install|clean|package)\b/g, targetGroup: -1 },
 ]
 
-/** First file redirection in a command, used to attribute a target. */
-const REDIRECT_TARGET_RE = /[0-9]?>>?(?!&)\s*("[^"]+"|'[^']+'|(?=[^;|&\s]*[./])[^\s;|&)>]+)/
+/**
+ * Devices a redirect can name without changing any file. `2>/dev/null` is the
+ * commonest redirect in exploration, and with no workspace boundary every
+ * redirect is gated, so treating a discard as a write denied read-only work.
+ */
+const DEVICE_SINK_RE = /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/
+
+/** File redirections in a command, used to attribute a target. */
+const REDIRECT_TARGET_RE = /[0-9]?>>?(?!&)\s*("[^"]+"|'[^']+'|(?=[^;|&\s]*[./])[^\s;|&)>]+)/g
 
 /**
  * Decide whether one `bash` command mutates the workspace.
@@ -139,6 +146,7 @@ export function classifyBash(command, base, workspaceRoot) {
       const raw = match[pattern.targetGroup]
       if (raw === undefined || raw.length === 0) return pattern.id
       const target = raw.replace(/^["']|["']$/g, '')
+      if (DEVICE_SINK_RE.test(target)) continue
       if (target.length === 0 || root === undefined) return pattern.id
       const baseDir = base === undefined ? root : normalizePath(base)
       const absolute = target.startsWith('/') ? target : `${baseDir}/${target}`
@@ -159,7 +167,11 @@ export function classifyBash(command, base, workspaceRoot) {
  */
 export function redirectTarget(command) {
   if (typeof command !== 'string') return undefined
-  const match = REDIRECT_TARGET_RE.exec(command)
-  if (match === null) return undefined
-  return match[1].replace(/^["']|["']$/g, '')
+  // The first redirect that names a FILE: `ls 2>/dev/null > a.py` writes a.py,
+  // and attributing it to /dev/null dropped the Python guide from the tier.
+  for (const match of command.matchAll(REDIRECT_TARGET_RE)) {
+    const target = match[1].replace(/^["']|["']$/g, '')
+    if (!DEVICE_SINK_RE.test(target)) return target
+  }
+  return undefined
 }

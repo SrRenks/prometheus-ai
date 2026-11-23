@@ -53,24 +53,16 @@ import {
   denyMutation,
   denyUnresolved,
   describeError,
-  docsForTier,
   findWorkspaceRoot,
-  isCommitCommand,
   isMutationTool,
-  languageForTarget,
   normalizePath,
   pathOf,
-  requiredTier,
+  requiredDocsFor,
   resolveRequiredDocs,
   rootSessionId,
-  tierCeiling,
-  TIERS,
 } from './docs-gate-policy.mjs'
 
 export * from './docs-gate-policy.mjs'
-
-/** Mutation kinds that can carry the commit act. */
-const COMMIT_KINDS = new Set(['git-write', 'gh-write', 'lazygit'])
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'docs-gate'
@@ -130,8 +122,6 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
 
     const resolved = await resolveRequiredDocs({ seam, workspaceRoot: state.root, repoRoots, extraDocs, signal })
     state.docs = [...(resolved.configDocs ?? []), ...(resolved.projectDocs ?? [])]
-    // A checkout missing the code-tier files cannot gate on them.
-    state.ceiling = tierCeiling(state.docs)
     // Optional, off unless `creditStore` names a path. Seeded only for docs whose
     // content still hashes to what a previous session read, and logged, because a
     // session that mutates without the rules in context while the gate reports
@@ -254,19 +244,9 @@ async function gateCall(store, log, exec, next) {
     return next()
   }
 
-  // Three independent selectors: the tier ladder, the language of the file being
-  // changed, and whether this call is the commit act itself. The commit selector
-  // is computed first because it also tells the ladder not to climb: a commit
-  // adds the commit-time docs and nothing else.
-  const isCommit = COMMIT_KINDS.has(call.kind) && isCommitCommand(commandOf(exec.arguments))
-  const wanted = requiredTier(call.kind, call.target, { commits: isCommit })
-  // The ceiling keeps a checkout that lacks the code-tier files from gating on
-  // them.
-  const tier = state.ceiling !== undefined && tierOf(wanted) > tierOf(state.ceiling) ? state.ceiling : wanted
-  const requiredDocs = docsForTier(tier, state.docs, {
-    language: languageForTarget(call.target),
-    commits: isCommit,
-  })
+  // The tier ladder, the language of the file being changed, and whether this
+  // call is the commit act itself: see `requiredDocsFor`.
+  const requiredDocs = requiredDocsFor(call, commandOf(exec.arguments), state.docs)
   // A credit counts only while the document still holds the content that was
   // read. A doc edited mid-session invalidates its credit on purpose: the agent
   // read the old rules, and the old rules are not what governs the change.
@@ -298,16 +278,6 @@ async function holdsContent(state, doc, seam) {
   } catch {
     return false
   }
-}
-
-/**
- * Rank one tier name for comparison.
- *
- * @param tier - a tier name.
- * @returns its index, or -1 when unknown.
- */
-function tierOf(tier) {
-  return TIERS.indexOf(tier)
 }
 
 /**

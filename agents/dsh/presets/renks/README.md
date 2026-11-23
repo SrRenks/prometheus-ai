@@ -21,6 +21,13 @@ install time from whatever dsh version is installed on the machine.
 The `.mjs` plugins import only each other, never dsh internals, so an
 upstream release does not break them.
 
+The Claude Code hook `agents/claude-code/hooks/docs-gate.mjs` imports
+`docs-gate-policy.mjs`, `docs-gate-seam.mjs`, `docs-gate-store.mjs` and
+`docs-gate-credit.mjs` from here, and `requiredDocsFor` in `docs-gate-tiers.mjs`
+is the one rule both use for which docs a call needs. A change to those exports
+is a change to both harnesses: run `node --test 'tools/*.spec.mjs'` with this
+suite.
+
 ## Requirements
 
 `@deepseek-ai/dsh-agent-preset` arrived in dsh **0.1.7-alpha.1**, and this preset

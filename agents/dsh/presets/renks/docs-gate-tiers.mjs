@@ -232,3 +232,27 @@ export function tierCeiling(available) {
   }
   return ceiling
 }
+
+/** Mutation kinds that can carry the commit act. */
+const COMMIT_KINDS = new Set(['git-write', 'gh-write', 'lazygit'])
+
+/**
+ * The docs one classified call must satisfy.
+ *
+ * Shared by both harnesses, the dsh plugin and the Claude Code hook, so the
+ * rule for which docs a change needs is written once. The commit selector is
+ * computed first because it also tells the ladder not to climb, and the ceiling
+ * keeps a checkout that lacks the code-tier files from gating on them.
+ *
+ * @param call - `{ kind, target }` from `classifyCall`.
+ * @param command - the raw `bash` command, when the call is one.
+ * @param docs - the docs that exist for this session.
+ * @returns the subset of `docs` that must be held before the call may run.
+ */
+export function requiredDocsFor(call, command, docs) {
+  const commits = COMMIT_KINDS.has(call.kind) && isCommitCommand(command)
+  const wanted = requiredTier(call.kind, call.target, { commits })
+  const ceiling = tierCeiling(docs)
+  const tier = TIERS.indexOf(wanted) > TIERS.indexOf(ceiling) ? ceiling : wanted
+  return docsForTier(tier, docs, { language: languageForTarget(call.target), commits })
+}
