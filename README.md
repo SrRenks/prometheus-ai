@@ -487,7 +487,7 @@ short: a sentence that must not fail belongs behind a control, not in the text.
 
 | Surface | Mediates | Where |
 |---|---|---|
-| `docs-gate` | the tool call, before it runs | the dsh preset below |
+| `docs-gate` | the tool call, before it runs | the dsh preset below, and a Claude Code hook |
 | `block-danger` | the bash command, before it runs | Claude Code hooks, this section |
 | linters, tests, the review checklist | the artifact, after it exists | `validation-checklist.md` |
 
@@ -508,15 +508,36 @@ raising completion from 21.7% to 35.0%. Its guardrails are instruction-level,
 injected when relevant; this gate mediates the call instead, which is a stronger
 mechanism than the one the numbers are about.
 
-Claude Code gets two hooks, wired in `agents/claude-code/settings.json`:
+Claude Code gets three hooks, wired in `agents/claude-code/settings.json`:
 
-- `block-danger` runs before a Bash call and denies a fixed list: recursive
-  deletes, `sudo`, `git push --force`, `chmod 777`, raw disk writes (`dd`,
-  `mkfs`, `> /dev/sda`), and `git add -A` or `git add .`, which the shared rules
-  ban for every tool.
-- `lint-check` reports lint output after a file write or edit, for Python, Go, and
-  Rust files whose linter is installed. It lowercases `tool_name` before comparing,
-  so the `Write|Edit` matcher in `settings.json` reaches it.
+- `docs-gate.mjs` is the dsh gate as a hook. It imports the classifier, the tiers,
+  the workspace walk, the content fingerprint and the credit store from
+  `agents/dsh/presets/renks/`, so both harnesses deny the same calls for the same
+  missing docs. It runs before Edit, Write, MultiEdit, NotebookEdit and Bash,
+  credits after Read and Bash, and costs no model tokens until it denies. Four
+  things differ from dsh. A hook is a new process per call, so the credits live
+  on disk under `~/.claude/state/docs-gate/<session>/`, one file per doc.
+  Compaction and `/clear` reset them, the optional store included, because a
+  compacted session holds a summary of the rules and not the rules. A `cat` of a whole doc counts as a read, but only when
+  the doc's full current content is in the command's stdout. And the denial
+  lists absolute paths, which the Read tool takes as written.
+  `DOCS_GATE_DISABLED=1` turns it off; `DOCS_GATE_CREDIT_STORE=<path>` turns on
+  the cross-session store, off by default for the reason the preset README gives.
+- `block-danger` runs before a Bash call and denies a fixed list: a recursive
+  forced `rm` (combined, split, quoted or trailing flags), `sudo`, a force push
+  (`-f`, `--force`, or a `+ref` refspec), `chmod 777`, raw disk writes (`dd`,
+  `mkfs`, `> /dev/sd*`), and `git add -A`, `--all` or `.`, which the shared rules
+  ban for every tool. It is a tripwire for the usual spellings, not a sandbox:
+  `find -delete` or an interpreter can still delete. It matches the whole command
+  text, heredoc bodies included, so a script that only carries one of those
+  strings as data has to live in a file.
+- `lint-check` reports after a write or edit: ruff for Python, `go vet` for Go,
+  `rustfmt --check` for Rust, `node --check` for JavaScript and `bash -n` for
+  shell. The report goes to stdout as `additionalContext`, which is the channel
+  Claude reads after a tool call. Until 2026-11 it went to stderr with exit 0,
+  which only reaches the debug log, so no lint report had ever reached the model.
+  A missing linter is said once per session, and Python still gets a syntax
+  check without ruff.
 
 `session-init` is the one piece that waits to be asked for. It would create `.ai/`
 wherever a session starts, which surprised projects that chose not to initialize,
@@ -528,7 +549,10 @@ directories are never opened.
 `settings.json` also carries the permission lists. A set of routine commands is
 pre-approved: builds, tests, git read commands, file inspection, and network
 fetches. Denied outright: `git push`, every `rm`, `git add -A`, `sudo`,
-`chmod 777`, `chown`, `shutdown`, `reboot`, `mkfs`, and `dd`.
+`chmod 777`, `chown`, `shutdown`, `reboot`, `mkfs`, and `dd`. A multi-word rule
+is written `Bash(git diff:*)`. The file used `Bash(git:diff*)` until 2026-11,
+which names a command starting with `git:diff`, so those rules matched nothing;
+`tools/test-hooks.mjs` now rejects that spelling.
 
 The shared rules carry the git-add ban for every tool. The destructive-command
 list lives only in the Claude Code hook and its settings, so other tools do not
@@ -612,6 +636,8 @@ Run before finishing any change to this config:
 for f in setup.sh ai-init ai-context agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
 for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done                # plugin syntax
 node --test 'agents/dsh/presets/renks/*.spec.mjs'                                  # gate behaviour and tiers
+node --test 'tools/*.spec.mjs'                                                     # stock resolver, helper parsers, Claude docs-gate, audit
+node tools/test-hooks.mjs                                                          # Claude Code hooks and their settings.json wiring
 node tools/build-preset-recipe.mjs --check                                         # preset recipe in sync with installed stock
 find . -type l ! -exec test -e {} \; -print                                        # broken symlinks
 python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/CLAUDE.md')))"  # injection budget

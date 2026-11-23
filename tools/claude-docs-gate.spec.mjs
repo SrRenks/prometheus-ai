@@ -1,0 +1,374 @@
+/**
+ * End-to-end tests for the Claude Code port of docs-gate.
+ *
+ * Each case spawns the real hook with the JSON Claude Code sends, against a
+ * throwaway config checkout and workspace, so the suite exercises the same
+ * process boundary, state files and filesystem the live hook uses. The tier
+ * rules themselves are covered by the dsh spec; these cases pin the adapter:
+ * tool-name mapping, the file-backed ledger, the credit paths, and the reset
+ * after compaction.
+ *
+ * Run: node --test tools/claude-docs-gate.spec.mjs
+ */
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { after, beforeEach, describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const HOOK = join(ROOT, 'agents/claude-code/hooks/docs-gate.mjs')
+
+const DOCS = {
+  principles: 'core/principles.md',
+  'git-workflow': 'core/docs/git-workflow.md',
+  'ai-writing': 'core/docs/ai-writing.md',
+  'development-workflow': 'core/docs/development-workflow.md',
+  complexity: 'core/docs/complexity.md',
+  maintainability: 'core/docs/maintainability.md',
+  'lang-python': 'core/docs/languages/python.md',
+}
+const CODE_TIER = ['principles', 'development-workflow', 'complexity', 'maintainability']
+
+const scratch = []
+after(() => {
+  for (const dir of scratch) rmSync(dir, { recursive: true, force: true })
+})
+
+/** A fresh config checkout, workspace, home and state dir for one case. */
+function fixture() {
+  const base = mkdtempSync(join(tmpdir(), 'claude-gate-'))
+  scratch.push(base)
+  const cfg = join(base, 'cfg')
+  for (const [id, path] of Object.entries(DOCS)) {
+    mkdirSync(dirname(join(cfg, path)), { recursive: true })
+    writeFileSync(join(cfg, path), `# ${id}\n\nRules for ${id}.\n`)
+  }
+  const ws = join(base, 'ws')
+  mkdirSync(join(ws, '.git'), { recursive: true })
+  mkdirSync(join(ws, '.ai'), { recursive: true })
+  writeFileSync(join(ws, '.ai/project.md'), '# project\n')
+  const bare = join(base, 'bare')
+  mkdirSync(bare)
+  const env = {
+    PATH: process.env.PATH,
+    HOME: join(base, 'home'),
+    AGENT_CONFIG: cfg,
+    DOCS_GATE_STATE_DIR: join(base, 'state'),
+  }
+  return { base, cfg, ws, bare, env, doc: id => join(cfg, DOCS[id]) }
+}
+
+/** Run the hook once with one payload. */
+function hook(fx, payload, extraEnv = {}) {
+  const run = spawnSync('node', [HOOK], {
+    input: typeof payload === 'string' ? payload : JSON.stringify({ session_id: 's1', cwd: fx.ws, ...payload }),
+    encoding: 'utf8',
+    env: { ...fx.env, ...extraEnv },
+  })
+  let json
+  try {
+    json = run.stdout.trim().length > 0 ? JSON.parse(run.stdout) : undefined
+  } catch {
+    json = undefined
+  }
+  return { code: run.status, stdout: run.stdout, stderr: run.stderr, json }
+}
+
+const pre = (tool_name, tool_input, extra = {}) => ({ hook_event_name: 'PreToolUse', tool_name, tool_input, ...extra })
+const read = (fx, path, extra = {}) => hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: path }, tool_response: {}, ...extra })
+const denied = r => r.json?.hookSpecificOutput?.permissionDecision === 'deny'
+const reason = r => r.json?.hookSpecificOutput?.permissionDecisionReason ?? ''
+const readAll = (fx, ids, extra = {}) => {
+  for (const id of ids) read(fx, fx.doc(id), extra)
+  read(fx, join(fx.ws, '.ai/project.md'), extra)
+}
+
+describe('denial and tiers', () => {
+  let fx
+  beforeEach(() => { fx = fixture() })
+
+  test('a source write is denied until the code tier, its language guide and project.md are read', () => {
+    const r = hook(fx, pre('Write', { file_path: join(fx.ws, 'src/a.py') }))
+    assert.equal(r.code, 0)
+    assert.ok(denied(r), r.stdout)
+    for (const id of [...CODE_TIER, 'lang-python']) assert.ok(reason(r).includes(fx.doc(id)), `${id} missing from: ${reason(r)}`)
+    assert.ok(reason(r).includes(join(fx.ws, '.ai/project.md')))
+    assert.ok(!reason(r).includes('git-workflow'), 'commit docs must not be required for a write')
+  })
+
+  test('the denial names absolute paths the Read tool accepts', () => {
+    const r = hook(fx, pre('Edit', { file_path: join(fx.ws, 'a.go') }))
+    for (const line of reason(r).split('\n').filter(l => l.startsWith('  - '))) {
+      assert.ok(line.slice(4).startsWith('/'), line)
+    }
+  })
+
+  test('a prose write needs only the core tier', () => {
+    const r = hook(fx, pre('Write', { file_path: join(fx.ws, 'README.md') }))
+    assert.ok(denied(r))
+    assert.ok(reason(r).includes(fx.doc('principles')))
+    assert.ok(!reason(r).includes('complexity'), reason(r))
+  })
+
+  test('reading the required docs lifts the gate', () => {
+    readAll(fx, [...CODE_TIER, 'lang-python'])
+    const r = hook(fx, pre('Write', { file_path: join(fx.ws, 'src/a.py') }))
+    assert.ok(!denied(r), r.stdout)
+    assert.equal(r.code, 0)
+  })
+
+  test('a partial read is a full credit, as in dsh', () => {
+    for (const id of CODE_TIER) read(fx, fx.doc(id), { tool_input: { file_path: fx.doc(id), offset: 1, limit: 1 } })
+    read(fx, join(fx.ws, '.ai/project.md'))
+    assert.ok(!denied(hook(fx, pre('Edit', { file_path: join(fx.ws, 'x.ts') }))))
+  })
+
+  test('a doc edited after the read loses its credit', () => {
+    readAll(fx, CODE_TIER)
+    writeFileSync(fx.doc('complexity'), '# complexity\n\nNew budget.\n')
+    const r = hook(fx, pre('Edit', { file_path: join(fx.ws, 'x.ts') }))
+    assert.ok(denied(r))
+    assert.ok(reason(r).includes(fx.doc('complexity')))
+    assert.ok(!reason(r).includes(fx.doc('principles')), 'unchanged docs keep their credit')
+  })
+
+  test('reading an unrelated file credits nothing', () => {
+    read(fx, join(fx.ws, 'notes.md'))
+    assert.ok(denied(hook(fx, pre('Write', { file_path: join(fx.ws, 'README.md') }))))
+  })
+
+  test('NotebookEdit is gated at the code tier through notebook_path', () => {
+    const r = hook(fx, pre('NotebookEdit', { notebook_path: join(fx.ws, 'n.ipynb') }))
+    assert.ok(denied(r))
+    assert.ok(reason(r).includes(fx.doc('complexity')))
+  })
+
+  test('a target outside the identified workspace is not gated', () => {
+    assert.ok(!denied(hook(fx, pre('Write', { file_path: join(fx.base, 'elsewhere/x.py') }))))
+  })
+
+  test('tools the gate does not cover pass', () => {
+    assert.ok(!denied(hook(fx, pre('Grep', { pattern: 'x' }))))
+  })
+})
+
+describe('bash', () => {
+  let fx
+  beforeEach(() => { fx = fixture() })
+  const bash = command => pre('Bash', { command })
+
+  test('read-only commands pass without any read', () => {
+    for (const command of ['ls -la', 'git status --short', 'grep -rn foo .', 'cat README.md']) {
+      assert.ok(!denied(hook(fx, bash(command))), command)
+    }
+  })
+
+  test('a redirect into the workspace is a code-tier mutation', () => {
+    const r = hook(fx, bash(`echo x > ${join(fx.ws, 'out.txt')}`))
+    assert.ok(denied(r))
+    assert.ok(reason(r).includes(fx.doc('complexity')))
+  })
+
+  test('a redirect outside the workspace passes', () => {
+    assert.ok(!denied(hook(fx, bash(`echo x > ${join(fx.base, 'out.txt')}`))))
+  })
+
+  test('discarding output to /dev/null is not a mutation, even with no workspace boundary', () => {
+    const r = hook(fx, { ...bash('ls missing 2>/dev/null; echo ok >/dev/stderr'), cwd: fx.bare })
+    assert.ok(!denied(r), reason(r))
+  })
+
+  test('a commit needs the commit docs and the core tier, not the code tier', () => {
+    const r = hook(fx, bash('git commit -m "docs: x"'))
+    assert.ok(denied(r))
+    for (const id of ['principles', 'git-workflow', 'ai-writing']) assert.ok(reason(r).includes(fx.doc(id)), id)
+    assert.ok(!reason(r).includes(fx.doc('complexity')), reason(r))
+  })
+
+  test('cat of a whole doc credits it, because its content reached the transcript', () => {
+    const content = readFileSync(fx.doc('principles'), 'utf8')
+    hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: `cat ${fx.doc('principles')}` }, tool_response: { stdout: content.trimEnd(), stderr: '' } })
+    read(fx, join(fx.ws, '.ai/project.md'))
+    assert.ok(!denied(hook(fx, pre('Write', { file_path: join(fx.ws, 'README.md') }))))
+  })
+
+  test('output that holds only part of a doc credits nothing', () => {
+    hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: `head -1 ${fx.doc('principles')}` }, tool_response: { stdout: '# principles', stderr: '' } })
+    read(fx, join(fx.ws, '.ai/project.md'))
+    assert.ok(denied(hook(fx, pre('Write', { file_path: join(fx.ws, 'README.md') }))))
+  })
+})
+
+describe('session state', () => {
+  let fx
+  beforeEach(() => { fx = fixture() })
+  const target = () => pre('Write', { file_path: join(fx.ws, 'README.md') })
+
+  test('a subagent in the same session inherits the credit', () => {
+    readAll(fx, ['principles'])
+    assert.ok(!denied(hook(fx, { ...target(), agent_id: 'sub-1', agent_type: 'Explore' })))
+  })
+
+  test('another session does not', () => {
+    readAll(fx, ['principles'])
+    assert.ok(denied(hook(fx, { ...target(), session_id: 's2' })))
+  })
+
+  test('compaction clears the credit, because the docs left the context', () => {
+    readAll(fx, ['principles'])
+    hook(fx, { hook_event_name: 'SessionStart', source: 'compact' })
+    assert.ok(denied(hook(fx, target())))
+  })
+
+  test('a resume keeps the credit', () => {
+    readAll(fx, ['principles'])
+    hook(fx, { hook_event_name: 'SessionStart', source: 'resume' })
+    assert.ok(!denied(hook(fx, target())))
+  })
+
+  test('a hostile session id cannot escape the state directory', () => {
+    for (const session_id of ['../../escape', '..']) read(fx, fx.doc('principles'), { session_id })
+    const state = fx.env.DOCS_GATE_STATE_DIR
+    assert.deepEqual(readdirSync(state).sort(), ['__', '______escape'])
+    assert.ok(!existsSync(join(fx.base, 'escape')))
+    assert.ok(!existsSync(join(dirname(fx.base), 'escape')))
+  })
+
+  test('/clear also resets, in case it ever keeps the session id', () => {
+    readAll(fx, ['principles'])
+    hook(fx, { hook_event_name: 'SessionStart', source: 'clear' })
+    assert.ok(denied(hook(fx, target())))
+  })
+
+  test('compaction wins over the credit store: a compacted session reads again', () => {
+    const store = join(fx.base, 'credit.json')
+    const withStore = { DOCS_GATE_CREDIT_STORE: store }
+    for (const file_path of [fx.doc('principles'), join(fx.ws, '.ai/project.md')]) {
+      hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path }, tool_response: {} }, withStore)
+    }
+    hook(fx, { hook_event_name: 'SessionStart', source: 'compact' }, withStore)
+    assert.ok(denied(hook(fx, target(), withStore)))
+    // And reading again after compaction lifts it, as without the store.
+    for (const file_path of [fx.doc('principles'), join(fx.ws, '.ai/project.md')]) {
+      hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path }, tool_response: {} }, withStore)
+    }
+    assert.ok(!denied(hook(fx, target(), withStore)))
+  })
+
+  test('parallel reads all reach the credit store', async () => {
+    // Claude Code runs the hooks of a batched Read concurrently. A load-modify-
+    // write store without a lock kept 6 of 7 docs in 7 of 10 trials.
+    const store = join(fx.base, 'credit.json')
+    const ids = Object.keys(DOCS)
+    for (let trial = 0; trial < 3; trial++) {
+      rmSync(store, { force: true })
+      await Promise.all(ids.map(id => hookAsync(fx, {
+        hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: fx.doc(id) }, tool_response: {}, session_id: `p${trial}`,
+      }, { DOCS_GATE_CREDIT_STORE: store })))
+      const held = Object.keys(JSON.parse(readFileSync(store, 'utf8')).docs).sort()
+      assert.deepEqual(held, [...ids].sort(), `trial ${trial}`)
+    }
+  })
+
+  test('the optional credit store reuses a read across sessions, and says so', () => {
+    const store = join(fx.base, 'credit.json')
+    readWithStore(fx, store, [fx.doc('principles'), join(fx.ws, '.ai/project.md')])
+    const r = hook(fx, { ...target(), session_id: 'new' }, { DOCS_GATE_CREDIT_STORE: store })
+    assert.ok(!denied(r), reason(r))
+    assert.ok((r.json?.systemMessage ?? '').includes('credit store'), r.stdout)
+  })
+
+  test('without the store switched on, a new session reads again', () => {
+    readAll(fx, ['principles'], { session_id: 'old' })
+    assert.ok(denied(hook(fx, { ...target(), session_id: 'new' })))
+  })
+
+  test('a store entry for content that changed since is not reused', () => {
+    const store = join(fx.base, 'credit.json')
+    readWithStore(fx, store, [fx.doc('principles'), join(fx.ws, '.ai/project.md')])
+    writeFileSync(fx.doc('principles'), '# principles\n\nRewritten.\n')
+    assert.ok(denied(hook(fx, { ...target(), session_id: 'new' }, { DOCS_GATE_CREDIT_STORE: store })))
+  })
+})
+
+describe('failure posture', () => {
+  let fx
+  beforeEach(() => { fx = fixture() })
+
+  test('DOCS_GATE_DISABLED=1 opens the gate', () => {
+    assert.ok(!denied(hook(fx, pre('Write', { file_path: join(fx.ws, 'a.py') }), { DOCS_GATE_DISABLED: '1' })))
+  })
+
+  test('malformed input fails open and says so to the user', () => {
+    const r = hook(fx, 'not json')
+    assert.equal(r.code, 0)
+    assert.ok(!denied(r))
+    assert.ok((r.json?.systemMessage ?? '').includes('docs-gate'), r.stdout)
+  })
+
+  test('with no config checkout, only the project doc is required, as in dsh', () => {
+    const none = { AGENT_CONFIG: join(fx.base, 'none') }
+    const r = hook(fx, pre('Write', { file_path: join(fx.ws, 'a.py') }), none)
+    assert.ok(denied(r))
+    assert.deepEqual(reason(r).split('\n').filter(l => l.startsWith('  - ')), [`  - ${join(fx.ws, '.ai/project.md')}`])
+  })
+
+  test('with no config checkout and no project doc, there is no gate', () => {
+    const r = hook(fx, { ...pre('Write', { file_path: join(fx.bare, 'a.py') }), cwd: fx.bare }, { AGENT_CONFIG: join(fx.base, 'none') })
+    assert.ok(!denied(r), reason(r))
+  })
+
+  test('an unreadable config checkout fails closed and names the failure', { skip: process.getuid?.() === 0 }, () => {
+    spawnSync('chmod', ['000', join(fx.cfg, 'core')])
+    try {
+      const r = hook(fx, pre('Write', { file_path: join(fx.ws, 'a.py') }))
+      assert.ok(denied(r))
+      assert.match(reason(r), /could not be resolved/)
+      assert.match(reason(r), /EACCES/)
+      // Closed for mutations only. Denying `ls` too would leave no way to look
+      // at, or fix, the permissions from inside the session.
+      for (const command of ['ls -la', `stat ${fx.cfg}/core`]) {
+        assert.ok(!denied(hook(fx, pre('Bash', { command }))), command)
+      }
+    } finally {
+      spawnSync('chmod', ['755', join(fx.cfg, 'core')])
+    }
+  })
+
+  test('the hook runs when reached through a symlinked hooks directory with a URL-hostile name', () => {
+    const linked = join(fx.base, 'odd dir@x', 'hooks')
+    mkdirSync(dirname(linked), { recursive: true })
+    symlinkSync(dirname(HOOK), linked)
+    const run = spawnSync('node', [join(linked, 'docs-gate.mjs')], {
+      input: JSON.stringify({ session_id: 's1', cwd: fx.ws, ...pre('Write', { file_path: join(fx.ws, 'a.py') }) }),
+      encoding: 'utf8',
+      env: fx.env,
+    })
+    assert.match(run.stdout, /"permissionDecision":"deny"/, run.stderr)
+  })
+
+  test('a payload with no session id is not gated', () => {
+    const r = hook(fx, JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: join(fx.ws, 'a.py') }, cwd: fx.ws }))
+    assert.ok(!denied(r))
+  })
+})
+
+/** Run the hook without waiting, so several can race as Claude Code runs them. */
+function hookAsync(fx, payload, extraEnv = {}) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn('node', [HOOK], { env: { ...fx.env, ...extraEnv } })
+    child.on('error', reject)
+    child.on('close', resolveRun)
+    child.stdin.end(JSON.stringify({ session_id: 's1', cwd: fx.ws, ...payload }))
+  })
+}
+
+/** Read files in an earlier session that has the credit store switched on. */
+function readWithStore(fx, store, paths) {
+  for (const file_path of paths) {
+    hook(fx, { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path }, tool_response: {}, session_id: 'old' }, { DOCS_GATE_CREDIT_STORE: store })
+  }
+}

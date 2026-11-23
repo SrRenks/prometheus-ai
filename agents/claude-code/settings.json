@@ -9,11 +9,11 @@
       "Bash(npm:*)",
       "Bash(yarn:*)",
       "Bash(pnpm:*)",
-      "Bash(git:diff*)",
-      "Bash(git:status*)",
-      "Bash(git:log*)",
-      "Bash(git:branch*)",
-      "Bash(git:stash*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git stash:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
@@ -25,17 +25,17 @@
       "Bash(which:*)",
       "Bash(curl:*)",
       "Bash(wget:*)",
-      "Bash(docker:compose*)",
-      "Bash(systemctl:status*)",
+      "Bash(docker compose:*)",
+      "Bash(systemctl status:*)",
       "Bash(journalctl:*)"
     ],
     "deny": [
-      "Bash(git:push*)",
-      "Bash(git:add -A*)",
-      "Bash(git:add .*)",
+      "Bash(git push:*)",
+      "Bash(git add -A:*)",
+      "Bash(git add .:*)",
       "Bash(rm:*)",
       "Bash(sudo:*)",
-      "Bash(chmod:777*)",
+      "Bash(chmod 777:*)",
       "Bash(chown:*)",
       "Bash(shutdown:*)",
       "Bash(reboot:*)",
@@ -54,15 +54,44 @@
             "command": "~/.claude/hooks/block-danger"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/docs-gate.mjs"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
             "command": "~/.claude/hooks/lint-check"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/docs-gate.mjs"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/docs-gate.mjs"
           }
         ]
       }

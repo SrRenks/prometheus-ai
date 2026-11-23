@@ -121,7 +121,7 @@ echo ""
 # Mirrors the Guardrails table in README.md; an edit here belongs there too.
 echo "Where the shared rules are enforced, not just read:"
 echo "  dsh          docs-gate denies a mutating tool call until the docs are read"
-echo "  Claude Code  block-danger and lint-check hooks"
+echo "  Claude Code  docs-gate hook (same rules as dsh), block-danger, lint-check"
 echo "  Cursor       none - rules activate by glob, nothing mediates"
 echo "  Codex        none - prose only"
 echo "  Gemini CLI   none - prose only"

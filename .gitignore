@@ -10,3 +10,7 @@ gitconfig
 # Machine-local credit store, if one is pointed inside the repo. It belongs
 # outside, but a file that records what this machine has read is never config.
 gate-credit.json
+
+# Claude Code syncs claude.ai skills into ~/.claude/skills, which setup.sh links
+# to skills/ here. The synced copies belong to the account, not to this config.
+skills/synced/

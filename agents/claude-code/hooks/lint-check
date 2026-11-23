@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # PostToolUse hook: runs after file edits
-# Auto-lints modified files and reports errors
+# Lints the modified file and reports problems to Claude.
+#
+# The report goes to stdout as hookSpecificOutput.additionalContext, exit 0.
+# That is the channel Claude reads after a successful tool call. This hook used
+# to write to stderr with exit 0, which only reaches the debug log, so every lint
+# report it ever produced went unseen.
 
 INPUT=$(cat)
 # Normalized to lowercase: the matcher in settings.json passes the real tool name
@@ -8,51 +13,75 @@ INPUT=$(cat)
 # disabled this hook.
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""' | tr '[:upper:]' '[:lower:]')
 
-# Only run after file writes
-if [ "$TOOL" != "write" ] && [ "$TOOL" != "edit" ]; then
-    exit 0
-fi
+case "$TOOL" in
+    write|edit|multiedit) ;;
+    *) exit 0 ;;
+esac
 
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
 [ -z "$FILE" ] && exit 0
 [ ! -f "$FILE" ] && exit 0
+SESSION=$(echo "$INPUT" | jq -r '.session_id // ""')
+STATE_DIR="${LINT_CHECK_STATE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state/lint-check}"
 
-# Determine linter by extension
+# Built by jq, never by interpolation: linter output carries quotes and newlines.
+report() {
+    jq -n --arg c "$1" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $c}}'
+    exit 0
+}
+
+issues() {
+    [ -n "$2" ] && report "Lint issues in $1:
+$2"
+}
+
+# `not checked` and `clean` are different answers and only one of them is good
+# news. Said on every write it is noise the model learns to skip, so it is said
+# once per session per linter.
+not_linted() {
+    if [ -n "$SESSION" ]; then
+        local marker
+        marker="$STATE_DIR/$(printf '%s' "$SESSION" | tr -c 'A-Za-z0-9_-' '_')-$1"
+        [ -e "$marker" ] && return
+        mkdir -p "$STATE_DIR" && : > "$marker"
+        find "$STATE_DIR" -type f -mtime +14 -delete 2>/dev/null
+    fi
+    report "Not linted: $1 is not installed, so $2 got a syntax check at most. The budgets this repo states are unverified for this language until it is. (Said once per session.)"
+}
+
 case "$FILE" in
     *.py)
-        # `not checked` and `clean` are different answers and only one of them is
-        # good news. Saying so once per write is noise, so it is a single line the
-        # model can act on the first time and ignore afterwards.
         if command -v ruff &>/dev/null; then
-            OUTPUT=$(ruff check "$FILE" 2>&1)
-            if [ -n "$OUTPUT" ]; then
-                echo "{\"systemMessage\": \"Lint issues in $FILE:\\n$OUTPUT\"}" >&2
-            fi
+            issues "$FILE" "$(ruff check "$FILE" 2>&1)"
         else
-            echo "{\"systemMessage\": \"Not linted: ruff is not installed, so $FILE was only checked by nothing. The budgets this repo states are unverified until it is.\"}" >&2
+            # ast.parse rather than py_compile, which would write __pycache__ into the project.
+            command -v python3 &>/dev/null &&
+                issues "$FILE" "$(python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$FILE" 2>&1)"
+            not_linted ruff "$FILE"
         fi
         ;;
     *.go)
         # `go vet` on a lone file complains that it wants package arguments and
-        # says nothing about the code, which is noise a reader learns to skip.
-        # Vet the PACKAGE the file belongs to, which is what actually lints it.
+        # says nothing about the code. Vet the PACKAGE the file belongs to.
         if command -v go &>/dev/null; then
             PKG_DIR="$(dirname "$FILE")"
-            OUTPUT=$(cd "$PKG_DIR" && go vet ./... 2>&1)
-            if [ -n "$OUTPUT" ]; then
-                echo "{\"systemMessage\": \"Lint issues in $PKG_DIR:\\n$OUTPUT\"}" >&2
-            fi
+            issues "$PKG_DIR" "$(cd "$PKG_DIR" && go vet ./... 2>&1)"
         else
-            echo "{\"systemMessage\": \"Not linted: go is not installed, so $FILE was checked by nothing.\"}" >&2
+            not_linted go "$FILE"
         fi
         ;;
     *.rs)
-        if command -v cargo &>/dev/null; then
-            OUTPUT=$(rustfmt --check "$FILE" 2>&1)
-            if [ -n "$OUTPUT" ]; then
-                echo "{\"systemMessage\": \"Format issues in $FILE:\\n$OUTPUT\"}" >&2
-            fi
+        if command -v rustfmt &>/dev/null; then
+            issues "$FILE" "$(rustfmt --check "$FILE" 2>&1)"
+        else
+            not_linted rustfmt "$FILE"
         fi
+        ;;
+    *.js|*.mjs|*.cjs)
+        command -v node &>/dev/null && issues "$FILE" "$(node --check "$FILE" 2>&1)"
+        ;;
+    *.sh|*.bash)
+        issues "$FILE" "$(bash -n "$FILE" 2>&1)"
         ;;
 esac
 

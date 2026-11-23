@@ -39,7 +39,7 @@ Shared across all projects; read on demand (AGENTS.md §3). Never copied into a 
 - `skills/` - shared procedures (dsh + Claude Code): plan, onboard, context, review, ci, ship, extend-config
 - `agents/claude-code/rules/` - scoped rules (dual frontmatter for Claude Code + Cursor): go, python, rust, security, testing
 - `agents/claude-code/commands/` - slash commands (symlinks into skills/): `ci`, `review`, `ship`
-- `agents/claude-code/hooks/` - lifecycle hooks: `session-init` (opt-in), `lint-check`, `block-danger`
+- `agents/claude-code/hooks/` - lifecycle hooks: `docs-gate.mjs` with `docs-gate-ledger.mjs` (the dsh gate as a hook, importing the preset's modules), `session-init` (opt-in), `lint-check`, `block-danger`
 
 ## Project templates - `core/templates/`
 Seeded into `.ai/` by `ai-init` (per-project, gitignored):

@@ -13,7 +13,7 @@
 4. Never fabricate. If you don't know, say so. Don't guess and sound certain.
 5. Stop when confused. Ask. Don't barrel ahead with wrong assumptions.
 6. Touch only what's requested. No drive-by refactoring. No cleanups outside scope.
-7. Do not edit, write, or run a mutating command before reading the tier's behavioural rules. The dsh `docs-gate` plugin names the files, and the list is in Section 3.
+7. Do not edit, write, or run a mutating command before reading the tier's behavioural rules. `docs-gate` (dsh and Claude Code) names the files; the list is in Section 3.
 8. Formatting by audience: agent-facing files (this config, `.ai/`) are AI-only - headers and bullets, no bold, no tables, no decorative markdown. Committed project docs (`README.md`, `docs/`) are written for humans - full markdown, and the skeletons under `core/templates/` mirror that human format, tables and bold included.
 9. AI-writing hygiene applies only to prose written into files for humans (README, docs, code comments, commit messages): follow `~/.config/agent-config/core/docs/ai-writing.md`. Chat replies and `.ai/` files are exempt.
 

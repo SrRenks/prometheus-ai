@@ -12,7 +12,10 @@
  *   - a PreToolUse hook reads one JSON object on stdin and exits 2 to deny,
  *     0 to allow. The denial reason goes to stderr as `{"systemMessage": ...}`.
  *   - a PostToolUse hook reads the same shape and exits 0 either way, reporting
- *     through `systemMessage` rather than blocking.
+ *     as `hookSpecificOutput.additionalContext` on stdout. That is the one channel
+ *     Claude reads after a successful tool call: stderr with exit 0 reaches only
+ *     the debug log, which is where lint-check's reports went for as long as it
+ *     wrote them there.
  *
  * Run after any change to a hook:
  *   node tools/test-hooks.mjs
@@ -105,6 +108,17 @@ for (const command of [
   'mkfs.ext4 /dev/sdb',
   'git add -A',
   'git add .',
+  'rm -fr build',
+  'rm -r -f build',
+  'rm --recursive --force build',
+  'git push -f origin main',
+  'echo x && sudo -i',
+  'rm build -rf',
+  'rm "-rf" build',
+  'rm -r build -f',
+  'git push origin +main',
+  'git add --all',
+  'git -C repo add -A',
 ]) {
   const { code, output } = run('block-danger', bash(command))
   check(`denies: ${command}`, code === 2, `exit ${code}`)
@@ -130,6 +144,13 @@ for (const command of [
   'rm build/out.txt',
   'echo hello',
   'ruff check .',
+  'echo pseudo-terminal',
+  'grep -rn sudoers /etc/hosts',
+  'rm -r build',
+  'git push origin main; ls -f',
+  'git add ./src/a.txt',
+  'git add .gitignore',
+  'rm -r build; ls -f',
 ]) {
   const { code } = run('block-danger', bash(command))
   check(`allows: ${command}`, code === 0, `exit ${code}`)
@@ -145,31 +166,82 @@ for (const tool of ['Write', 'Edit', 'Read', 'Grep']) {
 
 // ── lint-check ───────────────────────────────────────────────────────────────
 
-console.log('\nlint-check reports on writes and never blocks')
+/** The text a PostToolUse hook put in front of Claude, or undefined. */
+const contextOf = (result) => {
+  try {
+    return JSON.parse(result.stdout).hookSpecificOutput?.additionalContext
+  } catch {
+    return undefined
+  }
+}
+
+/** Is a command missing from PATH? */
+const missing = (tool) => {
+  try {
+    execFileSync('bash', ['-c', `command -v ${tool}`], { stdio: 'ignore' })
+    return false
+  } catch {
+    return true
+  }
+}
+
+console.log('\nlint-check reports on writes, to Claude, and never blocks')
 {
   const dir = scratch('hook-lint-')
-  const goFile = join(dir, 'bad.go')
-  writeFileSync(goFile, 'package main\n\nfunc main() {\n\tunused := 1\n}\n')
+  const env = { ...process.env, LINT_CHECK_STATE_DIR: join(dir, 'state') }
+  const runLint = (payload) => {
+    const spawn = spawnSync('bash', [join(HOOKS, 'lint-check')], { input: JSON.stringify(payload), encoding: 'utf8', env })
+    return { code: spawn.status ?? 1, stdout: spawn.stdout ?? '', stderr: spawn.stderr ?? '' }
+  }
 
-  const { code, output } = run('lint-check', write(goFile))
-  // A PostToolUse hook must not deny: the write already happened, and exit 2 here
-  // would report a completed change as a failure.
-  check('never denies, whatever it finds', code === 0, `exit ${code}`)
-  check('and reports through systemMessage instead', output.includes('systemMessage'))
+  // A syntax error whose message carries quotes and a newline: the old hook built
+  // its JSON by string interpolation, so output like this produced invalid JSON.
+  const js = join(dir, 'bad.mjs')
+  writeFileSync(js, 'const x = "unterminated\n')
+  const jsRun = runLint(write(js))
+  check('never denies, whatever it finds', jsRun.code === 0, `exit ${jsRun.code}`)
+  check('reports a JavaScript syntax error as additionalContext', (contextOf(jsRun) ?? '').includes('bad.mjs'), jsRun.stdout.slice(0, 80))
 
-  // Nothing to run means nothing to say. A hook that reported "no linter" on
-  // every write would be noise the model learns to ignore.
-  const quiet = run('lint-check', write('/nonexistent/dir/absent.go'))
-  check('says nothing about a path that does not exist', quiet.output.trim() === '', quiet.output.trim().slice(0, 40))
+  const sh = join(dir, 'bad.sh')
+  writeFileSync(sh, 'if then fi "\n')
+  check('reports a shell syntax error', (contextOf(runLint(write(sh))) ?? '').includes('bad.sh'))
 
-  const wrongTool = run('lint-check', { tool_name: 'Read', tool_input: { file_path: goFile } })
-  check('says nothing after a Read', wrongTool.output.trim() === '', wrongTool.output.trim().slice(0, 40))
+  const good = join(dir, 'good.mjs')
+  writeFileSync(good, 'export const x = 1\n')
+  const clean = runLint(write(good))
+  check('says nothing about a clean file', clean.stdout.trim() === '' && clean.stderr.trim() === '', clean.stdout.slice(0, 60))
 
-  // The matcher in settings.json sends the real tool name, capitalised. The hook
-  // normalises before comparing, and this is the case that was once broken by
-  // comparing verbatim against a lowercase literal.
-  const capitalised = run('lint-check', { tool_name: 'Write', tool_input: { file_path: goFile } })
-  check('accepts the capitalised tool name the matcher sends', capitalised.output.includes('systemMessage'), capitalised.output.trim().slice(0, 40))
+  const quiet = runLint(write('/nonexistent/dir/absent.go'))
+  check('says nothing about a path that does not exist', quiet.stdout.trim() === '', quiet.stdout.trim().slice(0, 40))
+
+  const wrongTool = runLint({ tool_name: 'Read', tool_input: { file_path: js } })
+  check('says nothing after a Read', wrongTool.stdout.trim() === '', wrongTool.stdout.trim().slice(0, 40))
+
+  // The matcher sends the capitalised name; the hook normalises before comparing.
+  // This is the case that was once broken by comparing verbatim against lowercase.
+  for (const tool of ['Edit', 'MultiEdit']) {
+    const capitalised = runLint({ tool_name: tool, tool_input: { file_path: js } })
+    check(`accepts the capitalised tool name the matcher sends: ${tool}`, contextOf(capitalised) !== undefined, capitalised.stdout.slice(0, 40))
+  }
+
+  // "Clean" and "not checked" are different answers, and only one is good news.
+  // Saying so on every write is noise the model learns to skip, so it is said
+  // once per session per linter.
+  const pyFile = join(dir, 'a.py')
+  writeFileSync(pyFile, 'x = 1\n')
+  if (missing('ruff')) {
+    const first = runLint({ ...write(pyFile), session_id: 'lint-s1' })
+    const second = runLint({ ...write(pyFile), session_id: 'lint-s1' })
+    const other = runLint({ ...write(pyFile), session_id: 'lint-s2' })
+    check('names the linter it could not run', (contextOf(first) ?? '').includes('Not linted'), first.stdout.slice(0, 70))
+    check('and says it once per session, not on every write', second.stdout.trim() === '', second.stdout.slice(0, 60))
+    check('but again in a new session', (contextOf(other) ?? '').includes('Not linted'))
+    const broken = join(dir, 'broken.py')
+    writeFileSync(broken, 'def f(:\n')
+    check('still catches a Python syntax error without ruff', (contextOf(runLint(write(broken))) ?? '').includes('broken.py'))
+  } else {
+    console.log('         note: ruff is installed here, so the absent-linter path is not exercised')
+  }
 }
 
 // ── session-init ─────────────────────────────────────────────────────────────
@@ -203,23 +275,44 @@ console.log('\nsession-init reports failure instead of printing it')
   check('and leaves a usable .ai/', existsSync(join(dir, '.ai/session.md')))
 }
 
-console.log('\nlint-check names the linter it could not run')
+// ── settings.json wiring ─────────────────────────────────────────────────────
+
+console.log('\nsettings.json wires every hook the way the hook expects')
 {
-  const dir = scratch('hook-absent-')
-  const pyFile = join(dir, 'a.py')
-  writeFileSync(pyFile, 'x = 1\n')
-  let ruff = true
-  try {
-    execFileSync('command', ['-v', 'ruff'], { shell: true, stdio: 'ignore' })
-  } catch {
-    ruff = false
+  const settings = JSON.parse(readFileSync(join(ROOT, 'agents/claude-code/settings.json'), 'utf8'))
+  /** Every matcher that runs a command containing `hookName` for one event. */
+  const matchersFor = (event, hookName) => (settings.hooks?.[event] ?? [])
+    .filter(group => group.hooks.some(h => h.command.includes(hookName)))
+    .map(group => new RegExp(`^(?:${group.matcher ?? ''})$`))
+  const reaches = (event, hookName, tool) => matchersFor(event, hookName).some(re => re.test(tool))
+
+  for (const tool of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']) {
+    check(`docs-gate runs before ${tool}`, reaches('PreToolUse', 'docs-gate', tool))
   }
-  const { output } = run('lint-check', write(pyFile))
-  if (ruff) {
-    console.log('         note: ruff is installed here, so the absent-linter path is not exercised')
-  } else {
-    // "Clean" and "not checked" are different answers, and only one is good news.
-    check('says it did not lint, rather than saying nothing', output.includes('Not linted'), output.trim().slice(0, 70))
+  for (const tool of ['Read', 'Bash']) check(`docs-gate credits after ${tool}`, reaches('PostToolUse', 'docs-gate', tool))
+  check('docs-gate leaves Read, Grep and Glob alone before they run', !['Read', 'Grep', 'Glob'].some(t => reaches('PreToolUse', 'docs-gate', t)))
+  check('docs-gate sees compaction', reaches('SessionStart', 'docs-gate', 'compact'))
+  check('docs-gate prunes at startup', reaches('SessionStart', 'docs-gate', 'startup'))
+  check('docs-gate does not reset on resume', !reaches('SessionStart', 'docs-gate', 'resume'))
+  check('docs-gate sees /clear', reaches('SessionStart', 'docs-gate', 'clear'))
+  for (const tool of ['Write', 'Edit', 'MultiEdit']) check(`lint-check runs after ${tool}`, reaches('PostToolUse', 'lint-check', tool))
+  check('block-danger runs before Bash', reaches('PreToolUse', 'block-danger', 'Bash'))
+
+  // Each hook command names a file that exists in this repo.
+  for (const group of Object.values(settings.hooks ?? {}).flat()) {
+    for (const h of group.hooks) {
+      const file = h.command.match(/~\/\.claude\/hooks\/([\w.-]+)/)?.[1]
+      check(`hook file exists: ${file}`, file !== undefined && existsSync(join(HOOKS, file)))
+    }
+  }
+
+  // `Bash(git:diff*)` reads as "a command starting with `git:diff`", which no
+  // shell command does, so the rule silently matched nothing. A prefix rule is
+  // `Bash(git diff:*)`: the colon comes only before the trailing `*`.
+  for (const rule of [...settings.permissions.allow, ...settings.permissions.deny]) {
+    const body = rule.match(/^Bash\((.*)\)$/)?.[1]
+    if (body === undefined || body.startsWith(':(')) continue
+    check(`permission rule uses the prefix syntax: ${rule}`, !/:(?!\*$)/.test(body))
   }
 }
 
