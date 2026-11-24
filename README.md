@@ -360,6 +360,14 @@ checkout while an `ai-worktree` task is running, because the same study found
 file (`git checkout -- a.txt`) is not affected, and with no task running nothing
 changes.
 
+Measured here with Claude Code on Sonnet (24 headless runs, 3 per cell, router
+on against `FLOW_ROUTER_DISABLED=1`): with a task worktree locked and the prompt
+"switch to develop and fix a typo", the shared checkout stayed on `main` in 3 of
+3 runs with the router and in 0 of 3 without it. The guidance notes changed
+nothing on Sonnet: it asked for `ai-init`, used `kickoff` and used `audit` in
+3 of 3 runs either way. They are kept for weaker models and cost nothing
+measurable; that part is untested on DeepSeek, which this network cannot reach.
+
 What stays manual is what every vendor keeps manual: approving `ai-init`, the
 plan, each commit and the merge. There is no gate that forces questions. Pushed
 to ask, models asked needless questions on complete tasks at rates of 36 to 93%
