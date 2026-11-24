@@ -27,7 +27,7 @@ afterEach(() => {
 })
 
 function run(cmd, args, cwd = dir) {
-  return spawnSync(cmd, args, { cwd, encoding: 'utf8', env: { ...process.env, AGENT_CONFIG_DIR: ROOT } })
+  return spawnSync(cmd, args, { cwd, encoding: 'utf8', env: { ...process.env, AGENT_CONFIG_DIR: ROOT, AGENT_CONFIG_LOCAL: join(tmpdir(), 'ai-init-spec-no-local') } })
 }
 
 const aiInit = (...args) => run('bash', [join(ROOT, 'ai-init'), ...args])
@@ -115,9 +115,43 @@ test('an exclude file without a final newline keeps its last rule', () => {
   assert.match(exclude(), /^\.ai\/$/m)
 })
 
+test('in a linked worktree it sets up the main checkout, whose .ai/ worktrees share', () => {
+  run('git', ['init', '-q', '-b', 'main'])
+  run('git', ['-c', 'user.email=s@example.invalid', '-c', 'user.name=s', 'commit', '-q', '--allow-empty', '-m', 'x'])
+  run('git', ['worktree', 'add', '-q', '-b', 'feat/x', join(dir, '.worktrees/x')])
+  const r = run('bash', [join(ROOT, 'ai-init')], join(dir, '.worktrees/x'))
+  assert.equal(r.status, 0, r.stderr)
+  assert.ok(existsSync(join(dir, '.ai/project.md')))
+  assert.ok(!existsSync(join(dir, '.worktrees/x/.ai')))
+})
+
+test('.ai/overlay.md links the shipped default, or a named overlay of the user', () => {
+  const local = join(dir, 'local')
+  mkdirSync(join(local, 'overlays'), { recursive: true })
+  writeFileSync(join(local, 'overlays/acme.md'), '# Overlay - acme\n')
+  const env = { ...process.env, AGENT_CONFIG_DIR: ROOT, AGENT_CONFIG_LOCAL: local }
+  const init = (...args) => spawnSync('bash', [join(ROOT, 'ai-init'), ...args], { cwd: dir, encoding: 'utf8', env })
+  run('git', ['init', '-q'])
+  assert.equal(init().status, 0)
+  assert.equal(readlinkSync(join(dir, '.ai/overlay.md')), join(ROOT, 'core/overlays/default.md'))
+  assert.equal(init('--overlay', 'acme').status, 0)
+  assert.equal(readlinkSync(join(dir, '.ai/overlay.md')), join(local, 'overlays/acme.md'))
+  assert.equal(init('--overlay', 'missing').status, 2)
+  assert.equal(init('--overlay', '../x').status, 2)
+  assert.equal(readlinkSync(join(dir, '.ai/overlay.md')), join(local, 'overlays/acme.md'), 'a failed pick keeps the link')
+})
+
 test('--help prints the usage and no code', () => {
   const r = aiInit('--help')
   assert.equal(r.status, 0)
   assert.match(r.stdout, /--team/)
   assert.doesNotMatch(r.stdout, /set -euo/)
+})
+
+test('a hand-written .ai/overlay.md is never replaced', () => {
+  run('git', ['init', '-q'])
+  mkdirSync(join(dir, '.ai'))
+  writeFileSync(join(dir, '.ai/overlay.md'), '# mine\n')
+  assert.equal(aiInit('--overlay', 'default').status, 0)
+  assert.equal(readFileSync(join(dir, '.ai/overlay.md'), 'utf8'), '# mine\n')
 })

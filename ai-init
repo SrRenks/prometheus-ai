@@ -6,7 +6,7 @@
 # Project context (.ai/context/) and README.md are generated ON DEMAND by
 # `ai-context` - never copied as generic templates.
 #
-# Usage: ai-init [--team | --link-agents]
+# Usage: ai-init [--team | --link-agents] [--overlay <name>]
 #   --team         also write a short ./AGENTS.md meant to be COMMITTED: the
 #                  repository's commands and the conventions the code does not
 #                  show, for the team and for CI agents.
@@ -15,18 +15,27 @@
 #                  loads a project AGENTS.md when there is no CLAUDE.md, which
 #                  would undo token mode, and every other harness already gets the
 #                  shared rules from its user-level config.
+#   --overlay      link .ai/overlay.md to the named overlay: your own in
+#                  $AGENT_CONFIG_LOCAL/overlays/<name>.md (default
+#                  ~/.config/agent-config.local), else a shipped one in
+#                  core/overlays/. Without it a new project gets your
+#                  overlays/default.md, else the shipped default.
 set -euo pipefail
 
 TEAM=0
 LINK_AGENTS=0
-for arg in "$@"; do
-    case "$arg" in
+OVERLAY=""
+while [ $# -gt 0 ]; do
+    case "$1" in
         --team) TEAM=1 ;;
         --link-agents) LINK_AGENTS=1 ;;
-        -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "ai-init: unknown argument: $arg" >&2; exit 2 ;;
+        --overlay) [ -n "${2:-}" ] || { echo "ai-init: --overlay needs a name" >&2; exit 2; }; OVERLAY="$2"; shift ;;
+        -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "ai-init: unknown argument: $1" >&2; exit 2 ;;
     esac
+    shift
 done
+case "$OVERLAY" in *[!a-z0-9._-]*|.*) echo "ai-init: overlay names are lowercase letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
 if [ "$TEAM" = 1 ] && [ "$LINK_AGENTS" = 1 ]; then
     echo "ai-init: --team writes a real ./AGENTS.md and --link-agents a symlink there; pick one" >&2
     exit 2
@@ -45,6 +54,9 @@ PROJECT="$(pwd)"
 # Inside a repository the root is the project: the gate looks for
 # <root>/.ai/project.md, and the ignore entries are anchored there.
 if TOP="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$TOP" ]; then
+    # A linked worktree shares the main checkout's .ai/ (see ai-worktree).
+    COMMON="$(git rev-parse --path-format=absolute --git-common-dir)"
+    case "$COMMON" in */.git) TOP="${COMMON%/.git}" ;; esac
     [ "$TOP" != "$PROJECT" ] && echo "  note: setting up the repository root, $TOP"
     PROJECT="$TOP"
     cd "$PROJECT"
@@ -94,6 +106,30 @@ elif [ "$LINK_AGENTS" = 1 ]; then
         ln -sfn "$CONFIG/AGENTS.md" "$PROJECT/AGENTS.md"
         LINKED_AGENTS=1
         echo "  linked: ./AGENTS.md -> shared config (for Cursor)"
+    fi
+fi
+
+# ── Overlay: company or personal rules between the shared rules and the project's ──
+LOCAL="${AGENT_CONFIG_LOCAL:-$HOME/.config/agent-config.local}"
+overlay_file() {
+    if [ -f "$LOCAL/overlays/$1.md" ]; then echo "$LOCAL/overlays/$1.md"
+    elif [ -f "$CONFIG/core/overlays/$1.md" ]; then echo "$CONFIG/core/overlays/$1.md"; fi
+}
+if [ -e "$PROJECT/.ai/overlay.md" ] && [ ! -L "$PROJECT/.ai/overlay.md" ]; then
+    # A hand-written overlay is the project's own; never replace it.
+    echo "  skip: .ai/overlay.md is a real file - move it to $LOCAL/overlays/ to link it by name"
+elif [ -n "$OVERLAY" ]; then
+    OV="$(overlay_file "$OVERLAY")"
+    [ -n "$OV" ] || { echo "ai-init: no overlay '$OVERLAY' in $LOCAL/overlays or $CONFIG/core/overlays" >&2; exit 2; }
+    ln -sfn "$OV" "$PROJECT/.ai/overlay.md"
+    echo "  linked: .ai/overlay.md -> $OV"
+elif [ ! -L "$PROJECT/.ai/overlay.md" ]; then
+    OV="$(overlay_file default)"
+    if [ -n "$OV" ]; then
+        ln -sfn "$OV" "$PROJECT/.ai/overlay.md"
+        echo "  linked: .ai/overlay.md -> $OV (ai-init --overlay <name> picks another)"
+    else
+        echo "  note: no default overlay found; the shared rules apply as they are"
     fi
 fi
 

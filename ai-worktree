@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# ai-worktree - One git worktree per task, so parallel agents never share a checkout.
+#
+# Two sessions in one checkout share HEAD and the index: a `git switch` in one
+# moves the files under the other, and their staging collides. A worktree has
+# its own HEAD, index and files, so each task gets one, on its own branch.
+#
+# Usage:
+#   ai-worktree new <task> [--type feat] [--branch <name>] [--base <ref>]
+#       create <main>/.worktrees/<task> on branch <type>/<task>, from --base
+#       (default origin/HEAD when it exists, else the main checkout's HEAD).
+#       It is locked until removed, so other sessions see the task is taken;
+#       the lock is a marker, not a guard, and remove only your own task.
+#   ai-worktree list                      every worktree, its branch, and the lock
+#   ai-worktree remove <task> [--delete-branch]
+#       remove a clean worktree, or forget one deleted by hand; --delete-branch
+#       then deletes the branch if git sees it merged.
+#
+# The project's .ai/ knowledge (project.md, assumptions.md, context/, docs/) is
+# linked from the main checkout; session.md and scratchpad.md are the task's own.
+# .worktreeinclude lists, in gitignore syntax, ignored files to copy in, such as
+# .env. Nothing is fetched and no dependency is installed.
+set -euo pipefail
+
+die() { echo "ai-worktree: $*" >&2; exit 2; }
+usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
+
+common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || die "not inside a git repository"
+case "$common" in */.git) MAIN="${common%/.git}" ;; *) die "no main checkout to share .ai/ from: this is a bare repository or a submodule" ;; esac
+ROOT="$MAIN/.worktrees"
+
+# Ignore the worktree directory once, in the exclude file every worktree shares.
+exclude_worktrees() {
+    local file="$common/info/exclude"
+    mkdir -p "$common/info"
+    grep -qxF '/.worktrees/' "$file" 2>/dev/null && return 0
+    [ -s "$file" ] && [ -n "$(tail -c1 "$file")" ] && echo >> "$file"
+    echo '/.worktrees/' >> "$file"
+}
+
+# Link the shared .ai/ entries from the main checkout and start the task's own notes.
+share_ai() {
+    local dir="$1" entry
+    [ -d "$MAIN/.ai" ] || { echo "  note: $MAIN has no .ai/ yet; run ai-init there to share it"; return 0; }
+    mkdir -p "$dir/.ai"
+    for entry in agents.md project.md assumptions.md context docs evals overlay.md; do
+        [ -e "$MAIN/.ai/$entry" ] && ln -sfn "$MAIN/.ai/$entry" "$dir/.ai/$entry"
+    done
+    printf '# Session context\n\nTask: %s\nBranch: %s\nWorktree: %s\n' "$2" "$3" "$dir" > "$dir/.ai/session.md"
+    printf '# Scratchpad\n\n' > "$dir/.ai/scratchpad.md"
+}
+
+# Copy the files .worktreeinclude names that git also ignores, such as .env.
+# The patterns use gitignore syntax and git does the matching, so a match is
+# always a path inside the main checkout: `..`, absolute paths and spaces cannot
+# reach outside it. Tracked files, symlinks, .ai/ and other worktrees are skipped.
+copy_includes() {
+    local dir="$1" rel
+    [ -f "$MAIN/.worktreeinclude" ] || return 0
+    git -C "$MAIN" ls-files -z --others --ignored --exclude-from="$MAIN/.worktreeinclude" |
+    while IFS= read -r -d '' rel; do
+        case "$rel" in .worktrees/*|.ai/*|.git/*) continue ;; esac
+        [ -f "$MAIN/$rel" ] && [ ! -L "$MAIN/$rel" ] || continue
+        git -C "$MAIN" check-ignore -q -- "$rel" || continue
+        mkdir -p "$dir/$(dirname "$rel")"
+        cp -p -- "$MAIN/$rel" "$dir/$rel"
+        echo "  copied: $rel"
+    done
+}
+
+cmd_new() {
+    local task="" type=feat branch="" base=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --type) type="${2:?--type needs a value}"; shift 2 ;;
+            --branch) branch="${2:?--branch needs a value}"; shift 2 ;;
+            --base) base="${2:?--base needs a value}"; shift 2 ;;
+            -*) die "unknown option: $1" ;;
+            *) [ -z "$task" ] || die "one task name only"; task="$1"; shift ;;
+        esac
+    done
+    [ -n "$task" ] || die "usage: ai-worktree new <task>"
+    case "$task" in *[!A-Za-z0-9._-]*|.*|*..*) die "task names are letters, digits, '.', '_' and '-', with no leading dot" ;; esac
+    branch="${branch:-$type/$task}"
+    local dir="$ROOT/$task"
+    [ -e "$dir" ] && die "$dir already exists; pick another task name or remove it"
+    if [ -z "$base" ]; then
+        base="$(git -C "$MAIN" symbolic-ref -q --short refs/remotes/origin/HEAD || echo HEAD)"
+    fi
+    exclude_worktrees
+    if git -C "$MAIN" show-ref --verify --quiet "refs/heads/$branch"; then
+        echo "  note: $branch exists; checking it out as it is, --base not used"
+        git -C "$MAIN" worktree add -q "$dir" "$branch"
+    else
+        git -C "$MAIN" worktree add -q -b "$branch" "$dir" "$base"
+    fi
+    share_ai "$dir" "$task" "$branch"
+    copy_includes "$dir"
+    # Locked last, so a setup that fails halfway leaves nothing locked.
+    git -C "$MAIN" worktree lock --reason "ai-worktree: task $task" "$dir"
+    echo "  worktree: $dir"
+    echo "  branch  : $branch (from $(git -C "$dir" rev-parse --short HEAD))"
+    echo "  next    : cd $dir, install dependencies there, and give it its own ports and database names"
+}
+
+cmd_list() {
+    git -C "$MAIN" worktree list --porcelain | awk '
+        /^worktree /{ path = substr($0, 10); branch = "(detached)"; lock = "" }
+        /^branch /{ branch = substr($0, 19) }
+        /^locked/{ lock = "  locked" }
+        /^$/{ print path "  " branch lock }'
+}
+
+cmd_remove() {
+    local task="" delete=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --delete-branch) delete=1; shift ;;
+            -*) die "unknown option: $1" ;;
+            *) task="$1"; shift ;;
+        esac
+    done
+    [ -n "$task" ] || die "usage: ai-worktree remove <task>"
+    local dir="$ROOT/$task" branch
+    if [ ! -d "$dir" ]; then
+        # Deleted by hand: git still holds it, locked, and keeps its branch taken.
+        branch="$(git -C "$MAIN" worktree list --porcelain | awk -v d="worktree $dir" '$0 == d { f = 1; next } f && /^branch /{ print substr($0, 19); exit } /^$/{ f = 0 }')"
+        git -C "$MAIN" worktree list --porcelain | grep -qxF "worktree $dir" || die "no worktree at $dir"
+        git -C "$MAIN" worktree unlock "$dir" 2>/dev/null || true
+        git -C "$MAIN" worktree prune
+        echo "  pruned: $dir was already deleted; its registration and lock are gone"
+    else
+        [ -z "$(git -C "$dir" status --porcelain)" ] || die "$dir has uncommitted changes; commit or discard them first"
+        branch="$(git -C "$dir" branch --show-current)"
+        git -C "$MAIN" worktree unlock "$dir" 2>/dev/null || true
+        git -C "$MAIN" worktree remove "$dir"
+        echo "  removed: $dir"
+    fi
+    if [ "$delete" = 1 ] && [ -n "$branch" ]; then
+        git -C "$MAIN" branch -d "$branch" 2>/dev/null && echo "  deleted branch: $branch" ||
+            echo "  kept branch $branch: git does not see it merged (a squash-merged PR looks unmerged); delete it with git branch -D once you are sure"
+    fi
+}
+
+case "${1:-}" in
+    new) shift; cmd_new "$@" ;;
+    list) shift; cmd_list ;;
+    remove) shift; cmd_remove "$@" ;;
+    -h|--help|'') usage ;;
+    *) die "unknown command: $1 (new, list, remove)" ;;
+esac
