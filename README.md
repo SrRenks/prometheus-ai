@@ -217,6 +217,7 @@ ai-context   # writes context topic files and the project README, once the proje
 ai-init --overlay acme # links .ai/overlay.md to your overlay named acme
 ai-survey    # prints computed facts: git state, stack markers, churn; --siblings ~/Projects for neighbours
 ai-lint      # checks .ai/: citations that no longer resolve, tables, bold, placeholders
+ai-skeleton src/   # classes and functions with line numbers, no bodies
 ai-worktree new login-fix --type fix   # a locked worktree and branch for one task
 ```
 
@@ -308,8 +309,8 @@ Three skills cover the work that used to be long pasted prompts:
 | Skill | What it does | What it writes |
 |---|---|---|
 | `audit` | First audit of an existing project and the repositories it talks to. Starts from `ai-survey`, explores by the questions the work needs, records each fact with `path:line` evidence and a confidence, keeps conflicts and one-sided cross-repo relations as open questions. Re-run it to refresh facts whose cited files changed. | `.ai/context/` topic files |
-| `quality-audit` | Tools first (linters, tests, complexity, dependency audit, semgrep when installed), then model findings with a severity, `path:line` and a failure scenario, each challenged by a fresh-context refutation pass. | `.ai/audits/<date>-quality.md` |
-| `kickoff` | Reads an issue, interviews you until the task has testable acceptance criteria and non-goals, creates the task's worktree and branch from the overlay's rules, then plans and stops. | the worktree's `.ai/session.md` |
+| `quality-audit` | Tools first (linters, tests, complexity, dependency audit, semgrep when installed), then findings judged against the code's stated intent. A finding counts only with a reproducing test or command, or a `path:line` trace from input to wrong outcome; the rest are listed as unverified, and what the actionability filter dropped is counted. | `.ai/audits/<date>-quality.md` |
+| `kickoff` | Reads an issue, lists what it states, what the code answers and what is missing, and asks about the gaps; then creates the task's worktree and branch, writes a failing reproduction, and plans in fixed phases (locate, reproduce, change, validate) before stopping. | the worktree's `.ai/session.md` |
 
 They differ from the earlier prompts on purpose. Those asked for 100% file
 coverage, repeated scoring loops and self-graded 100/100 scores. A study of
@@ -317,8 +318,22 @@ repository context files found that pushing agents into more exploration cost
 about a fifth more without raising success (arXiv:2602.11988), LLM reviewers
 over-report on correct code, and a score a model gives its own audit cannot be
 checked from outside. So the computable parts became commands (`ai-survey`,
-`ai-lint`), the audit is scoped by questions, and every finding carries evidence
-a person or a script can check. `core/docs/sources.md` has the studies.
+`ai-lint`, `ai-skeleton`), the audit is scoped by questions, and every finding
+carries evidence a person or a script can check. `core/docs/sources.md` has the
+studies.
+
+Each step below rests on a benchmarked study, with its strength stated:
+
+| Step | What was measured | Strength |
+|---|---|---|
+| `kickoff` plans a failing reproduction as the first phase, before any fix | the most valuable signal on SWE-bench Live and Pro; a reproduction written by a stronger model and given to a weaker one added 19 to 28 points (ORACLE-SWE, about 100 sampled tasks per dataset); Agentless's largest component (+5) | strong |
+| `kickoff` lists missing information and asks | models almost never ask unprompted; asking recovered 80 to 89% of full-spec performance for Claude models and 54 to 59% for weaker ones (Ambig-SWE, ICLR 2026, six models) | strong, simulated users |
+| files, then `ai-skeleton`, then lines, one hop of callers | signatures beat whole files for localization (58% vs 54%, a seventh of the cost); two-hop context measured worse | replicated, but the resolve-rate gain is small (+1.6 to +3.3) and mostly 2024 models |
+| `quality-audit` proves findings by reproduction or trace, uses intent text, filters for action | path-grounded triage of static-analysis alarms removed 94 to 98% of false positives while dropping 12 to 25% of real bugs; intent text raised review F1 from 36 to 64 on older models; an LLM correctness judge had minimal impact in one production system | mixed: single or private datasets, consistent in direction; applying them to audits is a judgement |
+
+`ai-skeleton` matched Python's own parser on all 7,607 definitions of six local
+repositories (precision and recall 1.000). Other languages are matched by
+pattern and checked only by the spec.
 
 ### Several tasks in one repository
 
@@ -354,6 +369,7 @@ AGENTS.md              universal rules, no tool-specific content
 setup.sh               installs every tool bridge on this machine
 ai-init, ai-context    per-project tooling (linked into ~/.local/bin)
 ai-survey, ai-lint     computed project facts, and the .ai/ checker
+ai-skeleton            definitions with line numbers, without bodies
 ai-worktree            one worktree per task
 core/
   docs/                reference library, read on demand
@@ -772,8 +788,8 @@ inherit it.
 | `plan` | surveys the repo and writes a numbered implementation plan with success criteria |
 | `onboard` | reads an existing codebase like a new engineer, then asks about what is still unclear |
 | `audit` | first audit of an existing project and its related repos, every fact with evidence, then open questions |
-| `quality-audit` | tools first, then ranked findings with a failure scenario, each challenged by a refutation pass |
-| `kickoff` | turns an issue into a specified task in its own worktree, then plans and stops |
+| `quality-audit` | tools first, then findings proven by a reproduction or a traced path, unproven ones kept apart |
+| `kickoff` | asks about what an issue leaves out, reproduces it in its own worktree, then plans and stops |
 | `context` | files knowledge from the conversation into the right `.ai/` files |
 | `review` | reviews the pending diff, unpushed commits, linters, and tests |
 | `ship` | prepares a commit: verifies the staged diff, writes the message, runs the pre-commit checks |
@@ -843,7 +859,7 @@ covers the resolution order.
 Run before finishing any change to this config:
 
 ```bash
-for f in setup.sh ai-init ai-context ai-worktree agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
+for f in setup.sh ai-init ai-context ai-worktree ai-survey ai-lint ai-skeleton agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
 for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done                # plugin syntax
 node --test 'agents/dsh/presets/renks/*.spec.mjs'                                  # gate behaviour and tiers
 node --test 'tools/*.spec.mjs'                                                     # stock resolver, helper parsers, Claude docs-gate, audit, setup modes

@@ -8,7 +8,7 @@ One deterministic, read-first-then-ask procedure to understand an existing codeb
 ## Workflow
 1. Classify before acting - confirm EXISTING (source, build files, or commit history). NEW/empty repos go through ai-init, not this flow. If `.ai/project.md` is missing, propose `ai-init` and run it once approved: `docs-gate` denies changes in a git workspace until `.ai/project.md` exists, and leaves reading open.
 2. Read state - git state first: current branch, `git status` (uncommitted changes), `git log --oneline -10`; then `.ai/project.md`, `.ai/session.md`, `.ai/assumptions.md`, `.ai/context/index.md` if present; root `README.md`; `docs/repository-map.md`.
-3. Survey what the task touches, read-only - start from `ai-survey`, which computes the git state, stack markers, churn and (with `--siblings`) the neighbouring repositories, then read the entry points, manifests, CI config and tests of that area. Do not map the whole repository up front: a study of repository context files found that pushing agents into more exploration raised cost by about a fifth without raising task success (arXiv:2602.11988). No code edits in this phase.
+3. Survey what the task touches, read-only - start from `ai-survey`, which computes the git state, stack markers, churn and (with `--siblings`) the neighbouring repositories, then read the entry points, manifests, CI config and tests of that area, narrowing from files to definitions (`ai-skeleton`) to the line ranges that matter. Do not map the whole repository up front: a study of repository context files found that pushing agents into more exploration raised cost by about a fifth without raising task success (arXiv:2602.11988). No code edits in this phase.
 4. Map as far as the task needs - module layout, data flow, external boundaries, change points and seams in that area. Draft `docs/repository-map.md` only when the human asks for one (human-formatted, committed).
 5. Ask, never presume - run the question checklist below. Batch by topic; wait for answers before the next batch.
 6. Capture confirmed facts - fill `.ai/project.md` and `.ai/context/` topic files; log decisions in `.ai/assumptions.md`.
@@ -16,8 +16,8 @@ One deterministic, read-first-then-ask procedure to understand an existing codeb
 
 ## Skills for the deeper passes
 - `audit`: the first full audit of an existing project and its related repositories, every fact with `path:line` evidence and a confidence, conflicts and open questions kept apart; re-run to refresh stale facts.
-- `quality-audit`: tools first, then ranked findings, each challenged by a fresh-context refutation pass.
-- `kickoff`: an issue turned into a specified task in its own worktree, then a plan.
+- `quality-audit`: tools first, then findings proven by a reproduction or a traced path, unproven ones kept apart.
+- `kickoff`: missing information listed and asked about, a failing reproduction in the task's own worktree, then a plan in fixed phases.
 
 ## Question checklist - ask the items the task depends on, never assume
 - Branches and git - naming scheme, protected branches, where features branch from, merge strategy.
