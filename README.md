@@ -16,7 +16,7 @@ project's `.ai/` directory; shared rules stay project-agnostic.
 
 Getting it running: [Supported tools](#supported-tools) · [Requirements](#requirements) · [Install](#install)
 
-How it works: [The `.ai/` directory](#the-ai-directory) · [Repository layout](#repository-layout) · [How one config reaches every tool](#how-one-config-reaches-every-tool) · [dsh and the `renks` preset](#dsh-and-the-renks-preset) · [What agents are told](#what-agents-are-told) · [The workflow](#the-workflow)
+How it works: [The `.ai/` directory](#the-ai-directory) · [Repository layout](#repository-layout) · [How one config reaches every tool](#how-one-config-reaches-every-tool) · [dsh and the `renks` preset](#dsh-and-the-renks-preset) · [What agents are told](#what-agents-are-told) · [The workflow](#the-workflow) · [How this setup compares with the evidence](#how-this-setup-compares-with-the-evidence)
 
 What holds the rules in place: [Guardrails](#guardrails) · [Reference docs](#reference-docs)
 
@@ -30,7 +30,7 @@ The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [Lice
 
 | Tool | Source in this repo | Bridge installed by `setup.sh` |
 |---|---|---|
-| Claude Code | `agents/claude-code/` (CLAUDE.md, settings.json, hooks, rules, commands, claudeignore) plus `skills/` | `~/.claude/` |
+| Claude Code | `agents/claude-code/` (CLAUDE.md or CLAUDE.token.md, settings.json, hooks, rules, commands, claudeignore) plus `skills/` | `~/.claude/` |
 | Codex | `AGENTS.md` | `~/.codex/AGENTS.md` |
 | Gemini CLI | `agents/gemini/GEMINI.md` | `~/.gemini/GEMINI.md` |
 | Cursor | `agents/claude-code/rules/` (combined frontmatter) | `~/.cursor/rules` |
@@ -40,7 +40,10 @@ The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [Lice
 ## Requirements
 
 - `bash` and `git`.
-- `node` only for the preset YAML check inside `agents/dsh/install.sh`.
+- `node` for the Claude Code `docs-gate` hook and the preset YAML check inside
+  `agents/dsh/install.sh`.
+- `jq` for the `block-danger` and `lint-check` hooks. Without `node` or `jq` those
+  hooks let every call through, and `setup.sh` says so.
 - dsh itself, if you want the dsh preset; the rest of the config works without it.
 
 ## Install
@@ -49,8 +52,37 @@ The rest: [Sources and acknowledgements](#sources-and-acknowledgements) · [Lice
 git clone git@github.com:SrRenks/prometheus-ai.git ~/.config/prometheus-ai
 cd ~/.config/prometheus-ai
 ./setup.sh                    # tool bridges and the git identity include
+                              # add --mode token on pay-per-token billing, see below
 bash agents/dsh/install.sh    # dsh preset and shared skills (optional)
 ```
+
+### Two modes: subscription and token
+
+The rules reach Claude Code one of two ways, and `setup.sh --mode` picks which
+`CLAUDE.md` is linked into `~/.claude/`:
+
+| Mode | `~/.claude/CLAUDE.md` links to | What every session carries | Use it when |
+|---|---|---|---|
+| `subscription` (default) | `agents/claude-code/CLAUDE.md` | all of `AGENTS.md` plus `claude-code.md`, about 2.5K tokens | Claude Code on a flat-rate plan |
+| `token` | `agents/claude-code/CLAUDE.token.md` | a four-line pointer plus `claude-code.md` | Claude Code on an API key, or to save plan usage |
+
+Token mode is close to what the dsh preset does: only the pointer is injected, the
+agent is told where the rules are, and `docs-gate` denies a write until the
+tier's docs have been read. `AGENTS.md` itself is read because the pointer says
+so, not because the gate demands it. The hooks, skills and settings are the same in both modes. dsh is
+always in token mode through its own preset. Codex and Gemini get the full rules
+in both modes, because nothing in those tools enforces a read, so a pointer would
+leave them with no rules at all.
+
+```bash
+./setup.sh --mode token          # switch to token mode
+./setup.sh --mode subscription   # switch back
+./setup.sh                       # re-run, keeping whichever mode is linked
+```
+
+The link itself records the mode, so there is no state file to drift from what
+Claude Code loads. The Claude Code rules live once, in
+`agents/claude-code/claude-code.md`, and both CLAUDE files import it.
 
 `setup.sh` derives every path from its own location and is safe to re-run. A real
 file sitting where a symlink will go is copied to `backups/<timestamp>/` first, so
@@ -178,31 +210,58 @@ read-only model. The shared config holds what is true for all projects, and
 
 ```bash
 cd ~/Projects/my-app
-ai-init      # creates .ai/, links ./AGENTS.md, adds the .gitignore entry
+ai-init      # creates .ai/ and ignores it in .git/info/exclude (local, never committed)
+ai-init --team         # also writes a short ./AGENTS.md for the team to commit
+ai-init --link-agents  # links ./AGENTS.md to the shared rules, for Cursor only
 ai-context   # writes context topic files and the project README, once the project has content
+ai-init --overlay acme # links .ai/overlay.md to your overlay named acme
+ai-survey    # prints computed facts: git state, stack markers, churn; --siblings ~/Projects for neighbours
+ai-lint      # checks .ai/: citations that no longer resolve, tables, bold, placeholders
+ai-skeleton src/   # classes and functions with line numbers, no bodies
+ai-worktree new login-fix --type fix   # a locked worktree and branch for one task
 ```
 
 | Path | Role | Ownership |
 |---|---|---|
 | `.ai/agents.md` | symlink to this config's `AGENTS.md` | shared, never edited |
 | `.ai/project.md` | stack, build/test/lint commands, local conventions | project |
+| `.ai/overlay.md` | symlink to a company or personal overlay | your overlay, or the shipped default |
 | `.ai/session.md` | current session state, written at the end of a task | project |
 | `.ai/assumptions.md` | decision log, one numbered entry per decision | project |
 | `.ai/scratchpad.md` | working notes, commands, investigation results | project |
 | `.ai/context/index.md` | maturity, stack, pointers, open gaps | machine, refreshed on every `ai-context` run |
 | `.ai/context/<topic>.md` | domain, architecture, database, dependencies, conventions | created once, then never overwritten |
 | `.ai/docs/` | project-specific convention docs, created on demand | project |
+| `.ai/audits/` | `quality-audit` reports, one dated file per run | project |
 | `.ai/evals/` | retained eval runs, optional | project, see `core/docs/evals.md` |
 
 How it behaves:
 
 - The shared rules arrive by symlink. Editing `AGENTS.md` here updates
   `.ai/agents.md` in every project at once, and no project keeps a copy to drift.
-- `ai-init` also links `./AGENTS.md` in the project root, which is the path Codex,
-  Cursor, Windsurf, Amp, Jules, and Claude Code look for.
-- `.ai/` stays out of git. `ai-init` writes the entry into the project's
-  `.gitignore`, so project knowledge never enters the repository's history and
-  never reaches a teammate who does not need it.
+- A project is set up before its first change. In a git repository with no
+  `.ai/project.md`, `docs-gate` denies changes in both dsh and Claude Code and
+  names the steps: classify the project, ask the user to approve `ai-init`, run
+  it. Reading and exploring stay open, so do writes that only create files
+  under `.ai/` (`ln`, `mv` and `rm` do not count, and a symlink cannot carry a
+  write out), and Claude Code says so when a new session starts. Folders without
+  git, this config checkout, a clone opted out with
+  `touch "$(git rev-parse --git-path info/ai-optout)"` (it works in worktrees and
+  submodules too) and `DOCS_GATE_REQUIRE_INIT=0` are exempt. Run from a
+  subdirectory, `ai-init` sets up the repository root. The check requires `ai-init`, not the
+  whole onboarding survey; the next section says why.
+- `.ai/` stays out of git without touching the repository. `ai-init` writes the
+  ignore entry to `.git/info/exclude`, which belongs to the clone and is never
+  committed, so one person's agent files do not show up as a change to the
+  team's `.gitignore`.
+- `ai-init` no longer links `./AGENTS.md` into the project. Claude Code (2.1.277
+  and later) loads a project `AGENTS.md` whenever the project has no `CLAUDE.md`,
+  so the link put the whole shared rule set back into token-mode sessions, and
+  every harness except Cursor already gets the shared rules from its user-level
+  config. `--link-agents` keeps the link for Cursor.
+- `ai-init --team` writes a short `./AGENTS.md` meant to be committed: the
+  commands and the conventions the code does not show, for teammates and CI
+  agents. It stays separate from `.ai/`, which is personal working memory.
 - `ai-init` records project maturity. It reads git history and build files and
   stamps the result (NEW or EXISTING) into `context/index.md`, which decides
   whether the agent onboards first or starts building.
@@ -229,18 +288,155 @@ How it behaves:
 `core/docs/ai-directory.md` is the full standard, including when a `.ai/docs/`
 file is worth creating instead of a line in `project.md`.
 
+### Overlays: company and personal rules
+
+Rules that hold for every repository of one company, or for one person's style,
+sit in an overlay between the shared rules and the project: the reply and doc
+language, the branch model, how tickets are named, the environments, which acts
+need separate approvals. `.ai/project.md` still wins over the overlay.
+
+The shipped `core/overlays/default.md` changes nothing and explains each section;
+every section is optional, so an overlay can set only the branch model and leave
+ticket numbers out. Your own overlays live outside this repository, in
+`~/.config/prometheus-ai.local/overlays/<name>.md` (or `$PROMETHEUS_AI_LOCAL`), so
+company process never lands in a public config. `ai-init --overlay <name>` links
+one into a project; name yours `default.md` and every new project gets it.
+
+### Existing projects: audit, quality audit, task kickoff
+
+Three skills cover the work that used to be long pasted prompts:
+
+| Skill | What it does | What it writes |
+|---|---|---|
+| `audit` | First audit of an existing project and the repositories it talks to. Starts from `ai-survey`, explores by the questions the work needs, records each fact with `path:line` evidence and a confidence, keeps conflicts and one-sided cross-repo relations as open questions. Re-run it to refresh facts whose cited files changed. | `.ai/context/` topic files |
+| `quality-audit` | Tools first (linters, tests, complexity, dependency audit, semgrep when installed), then findings judged against the code's stated intent. A finding counts only with a reproducing test or command, or a `path:line` trace from input to wrong outcome; the rest are listed as unverified, and what the actionability filter dropped is counted. | `.ai/audits/<date>-quality.md` |
+| `kickoff` | Reads an issue, lists what it states, what the code answers and what is missing, and asks about the gaps; then creates the task's worktree and branch, writes a failing reproduction, and plans in fixed phases (locate, reproduce, change, validate) before stopping. | the worktree's `.ai/session.md` |
+
+They differ from the earlier prompts on purpose. Those asked for 100% file
+coverage, repeated scoring loops and self-graded 100/100 scores. A study of
+repository context files found that pushing agents into more exploration cost
+about a fifth more without raising success (arXiv:2602.11988), LLM reviewers
+over-report on correct code, and a score a model gives its own audit cannot be
+checked from outside. So the computable parts became commands (`ai-survey`,
+`ai-lint`, `ai-skeleton`), the audit is scoped by questions, and every finding
+carries evidence a person or a script can check. `core/docs/sources.md` has the
+studies.
+
+Measured here on a client repository (Sonnet, 10 questions provable from the code, graded
+blind): a fresh agent answering from an audit's `.ai/` pack scored 3.0 to 3.5 of
+10, from the old first-audit prompt's packs or from the `audit` skill's alike,
+while an agent that read the code when asked scored 9.25, for about the cost of
+one audit ($0.45 against $0.49 plus $0.15). The skill reached the old prompt's
+score with a third to a half of its tokens. So an audit is not the way to learn
+what the code already shows; its use is the knowledge the code cannot show,
+which only you can answer, and that part was not measured. Full numbers are in
+`core/docs/sources.md`.
+
+Each step below rests on a benchmarked study, with its strength stated:
+
+| Step | What was measured | Strength |
+|---|---|---|
+| `kickoff` plans a failing reproduction as the first phase, before any fix | the most valuable signal on SWE-bench Live and Pro; a reproduction written by a stronger model and given to a weaker one added 19 to 28 points (ORACLE-SWE, about 100 sampled tasks per dataset); Agentless's largest component (+5) | strong |
+| `kickoff` lists missing information and asks | models almost never ask unprompted; asking recovered 80 to 89% of full-spec performance for Claude models and 54 to 59% for weaker ones (Ambig-SWE, ICLR 2026, six models) | strong, simulated users |
+| files, then `ai-skeleton`, then lines, one hop of callers | signatures beat whole files for localization (58% vs 54%, a seventh of the cost); two-hop context measured worse | replicated, but the resolve-rate gain is small (+1.6 to +3.3) and mostly 2024 models |
+| `quality-audit` proves findings by reproduction or trace, uses intent text, filters for action | path-grounded triage of static-analysis alarms removed 94 to 98% of false positives while dropping 12 to 25% of real bugs; intent text raised review F1 from 36 to 64 on older models; an LLM correctness judge had minimal impact in one production system | mixed: single or private datasets, consistent in direction; applying them to audits is a judgement |
+
+`ai-skeleton` matched Python's own parser on all 7,607 definitions of six local
+repositories (precision and recall 1.000), and the TypeScript compiler on 516 of
+521 definitions in a client repository's TS/TSX files (precision and recall 0.990). Other languages are matched by
+pattern and checked only by the spec.
+
+### How the flow starts by itself
+
+Agents rarely pick the right skill on their own. In Vercel's eval a skill was
+never invoked in 56% of runs, and an explicit instruction raised triggering to
+over 95%; in a study of four coding agents, the repository's policy file was
+opened in 12 of 347 runs. So both dsh and Claude Code now say the next step at
+the moment it applies, from `flow-router.mjs`:
+
+| When | What the agent is told |
+|---|---|
+| a session starts in a repo with no `.ai/project.md` | ask you to approve `ai-init` (with your overlay), then run `audit` |
+| a session starts in a set-up repo with no audited facts | `audit` builds `.ai/context/` when the work needs it |
+| a session starts while task worktrees are running | which tasks, and that a new task gets `ai-worktree new` |
+| a session starts inside a task worktree | its spec and plan are in `.ai/session.md` |
+| your message names a GitHub issue or PR (`owner/repo#12`, an issues or pull URL) | `kickoff` starts a task from it |
+| your message asks for an audit | `audit` and `quality-audit` |
+
+Each note is one line, said once per session, and never blocks. One thing is
+blocked instead of suggested: `git switch` and `git checkout <branch>` in a
+checkout while an `ai-worktree` task is running, because the same study found
+"do not" rules followed 0 to 10% of the time even with reminders. Restoring a
+file (`git checkout -- a.txt`) is not affected, and with no task running nothing
+changes.
+
+Measured here with Claude Code on Sonnet (24 headless runs, 3 per cell, router
+on against `FLOW_ROUTER_DISABLED=1`): with a task worktree locked and the prompt
+"switch to develop and fix a typo", the shared checkout stayed on `main` in 3 of
+3 runs with the router and in 0 of 3 without it. The guidance notes changed
+nothing on Sonnet: it asked for `ai-init`, used `kickoff` and used `audit` in
+3 of 3 runs either way. They are kept for weaker models and cost nothing
+measurable; that part is untested on DeepSeek, which this network cannot reach.
+
+What stays manual is what every vendor keeps manual: approving `ai-init`, the
+plan, each commit and the merge. There is no gate that forces questions. Pushed
+to ask, models asked needless questions on complete tasks at rates of 36 to 93%
+(Ambig-SWE), and mid-task interruptions were dismissed 62% of the time in a
+JetBrains field study, so `kickoff` keeps its one missing-information check at
+the start of a task.
+
+For you at the terminal, `ai status` prints the same state and the next
+command, and `ai init`, `ai task new|list|remove` and `ai survey|lint|skeleton`
+route to the ai-* commands.
+
+To turn the notes and the block off: `FLOW_ROUTER_DISABLED=1` disables only the
+router in Claude Code (`DOCS_GATE_DISABLED=1` disables the whole hook), and
+`flowRouter: false` in the dsh preset config disables the router there. Both fail open: an error in a note or in the switch check lets the
+prompt or the command through.
+
+### Several tasks in one repository
+
+Two agents in one checkout share its HEAD and its index: one `git switch` moves
+the files under the other, their staging collides, and each ends up waiting for
+the other. The rule is one worktree per task, and never switching the branch of
+a checkout your task did not create.
+
+```bash
+ai-worktree new login-fix --type fix   # .worktrees/login-fix on fix/login-fix, locked
+ai-worktree list                       # every task, its branch, and whether it is taken
+ai-worktree remove login-fix --delete-branch   # refuses uncommitted work
+```
+
+`.worktrees/` sits in the main checkout and is ignored through
+`.git/info/exclude`; the name belongs to no vendor, and worktrees made by other
+tools still show up in `ai-worktree list`. Each worktree shares the project's
+`.ai/` knowledge through links to the main checkout and keeps its own
+`session.md` and `scratchpad.md`. Gitignored files it needs, such as `.env`, go
+in `.worktreeinclude`, in gitignore syntax; git does the matching, so only
+files it ignores are copied and nothing outside the repository can be named.
+The lock marks the task as taken until `remove`; it cannot tell a running task
+from a finished one. Dependencies, ports and database names are per worktree,
+and the tool installs nothing: the `worktrees` skill tells the agent to set them
+up. `ai-init` inside a worktree sets up the main checkout, and `docs-gate` in
+both dsh and Claude Code reads the main checkout's `.ai/project.md` from a
+worktree.
+
 ## Repository layout
 
 ```
 AGENTS.md              universal rules, no tool-specific content
 setup.sh               installs every tool bridge on this machine
 ai-init, ai-context    per-project tooling (linked into ~/.local/bin)
+ai-survey, ai-lint     computed project facts, and the .ai/ checker
+ai-skeleton            definitions with line numbers, without bodies
+ai-worktree            one worktree per task
 core/
   docs/                reference library, read on demand
   principles.md        universal agent principles
   templates/           .ai/ and project-docs skeletons
+  overlays/            the shipped default overlay (yours live in ~/.config/prometheus-ai.local)
 agents/
-  claude-code/         CLAUDE.md, settings.json, hooks/, rules/, commands/
+  claude-code/         CLAUDE.md, CLAUDE.token.md, claude-code.md, settings.json, hooks/, rules/, commands/
   gemini/              GEMINI.md
   dsh/                 install.sh and presets/renks/
 tools/
@@ -263,8 +459,10 @@ adapters, the reference library, and the templates.
   symlinks into this directory.
 - Files in `agents/claude-code/rules/` carry `description` with `globs` for
   Cursor and `paths` for Claude Code, so one file serves both.
-- `ai-init` links `./AGENTS.md` into each project, which is the path Codex,
-  Cursor, Windsurf, Amp, Jules, and Claude Code look for.
+- Each harness gets the shared rules from its own user-level config:
+  `~/.claude`, `~/.codex`, `~/.gemini`, `~/.dsh`. A project gets a `./AGENTS.md`
+  only when asked: a committed team file (`ai-init --team`) or, for Cursor, a link
+  (`ai-init --link-agents`).
 - Editing a rule and pulling updates every tool and every project, because the
   bridges are symlinks. Only the dsh preset needs its installer re-run.
 
@@ -351,7 +549,9 @@ better.
 `docs-gate.mjs` observes `tools/pre-execute` - the waterfall `dsh-tools` runs
 before every tool body - and denies a mutating call until the session has read
 what that call's tier requires. The denial reaches the model as the tool result,
-so the corrective instruction arrives exactly where the model is looking.
+so the corrective instruction arrives exactly where the model is looking. It
+also observes `tools/post-execute`, only to note next to a read result that the
+read covered part of a gated doc.
 
 The set is tiered, because demanding a complexity budget before a README edit is
 friction with no return:
@@ -393,7 +593,11 @@ than no gate:
   and says so.
 - It never re-gates: once the set is read, the check is one `Set` lookup.
 - A subagent inherits its root session's evidence instead of re-reading five
-  files, and an unresolvable workspace fails closed rather than silently
+  files. Claude Code does name the subagent in hook input (`agent_id`), so
+  per-agent credits are possible; they are not used because the shared rules
+  keep subagents to exploration and review, which the gate leaves open, and
+  re-reading would cost every delegated writer the whole tier. An unresolvable
+  workspace fails closed rather than silently
   disabling the gate.
 
 `docs-gate.spec.mjs` and `docs-gate-tiers.spec.mjs` are the test suites, and
@@ -479,6 +683,28 @@ method that entry evolved from: three phases, each ending in a gate.
 The separate context is the point of the review step: a reviewer working from the
 same session inherits the author's assumptions.
 
+## How this setup compares with the evidence
+
+Checked on 2026-11-23 against vendor guidance, two controlled studies and the
+practitioners most cited for agent workflows. The entries, with links, are in
+`core/docs/sources.md` under "Agent context files" and "Practitioner sources".
+
+| Choice | What the evidence says | Status here |
+|---|---|---|
+| Plan gate, test-first, fresh-context review | Supported by Anthropic's best practices, Addy Osmani, Harper Reed and Kent Beck; TDFlow reached 88.8% on SWE-bench Lite with human-written tests | kept |
+| Hooks for rules that must hold | Anthropic: use a hook when a rule keeps being missed, and keep the enforced set small | kept, see Guardrails |
+| One short global file plus repo-level context | The AGENTS.md standard and Claude Code, Codex and Gemini all layer a user file under a repo file | kept |
+| Forcing a full onboarding survey before the first change | The ETH Zurich study of context files (ICLR 2026) found pushed exploration raised cost by about a fifth without raising success | dropped: only `ai-init` is required, and the survey covers what the task touches |
+| Context written by an LLM | Same study: generated files moved success by -0.5 to -2 points, not significant, and cost 20 to 23% more; human-written ones beat generated ones by 7 points | topic files stay question lists, and the docs say to record only what the code does not show |
+| Keeping project rules uncommitted | Every vendor, and Thoughtworks' Technology Radar at Adopt, commits a short repo file for the team | `.ai/` stays local as working memory; `ai-init --team` adds the committed file |
+| A gate that makes agents read the rules | Called deferred eager loading by the review this table comes from; against it, agents opened the policy file in 3.5% of unprompted runs and complied with read instructions 0% of the time in the studies cited under Guardrails | kept, with the cost measured (`node tools/verify-docs-gate.mjs`) |
+
+The two studies disagree in places. Lulla et al. found an `AGENTS.md` cut runtime
+by 28.6% and output tokens by 16.6% at similar completion, where the ETH study
+measured higher cost. Neither covers this repository's tasks, which is why
+`core/docs/evals.md` keeps a retained task set; running it with and without the
+context is the open measurement.
+
 ## Guardrails
 
 The same rule is enforced differently per tool, because what a harness can
@@ -487,7 +713,7 @@ short: a sentence that must not fail belongs behind a control, not in the text.
 
 | Surface | Mediates | Where |
 |---|---|---|
-| `docs-gate` | the tool call, before it runs | the dsh preset below |
+| `docs-gate` | the tool call, before it runs | the dsh preset below, and a Claude Code hook |
 | `block-danger` | the bash command, before it runs | Claude Code hooks, this section |
 | linters, tests, the review checklist | the artifact, after it exists | `validation-checklist.md` |
 
@@ -508,15 +734,68 @@ raising completion from 21.7% to 35.0%. Its guardrails are instruction-level,
 injected when relevant; this gate mediates the call instead, which is a stronger
 mechanism than the one the numbers are about.
 
-Claude Code gets two hooks, wired in `agents/claude-code/settings.json`:
+Claude Code gets three hooks, wired in `agents/claude-code/settings.json`:
 
-- `block-danger` runs before a Bash call and denies a fixed list: recursive
-  deletes, `sudo`, `git push --force`, `chmod 777`, raw disk writes (`dd`,
-  `mkfs`, `> /dev/sda`), and `git add -A` or `git add .`, which the shared rules
-  ban for every tool.
-- `lint-check` reports lint output after a file write or edit, for Python, Go, and
-  Rust files whose linter is installed. It lowercases `tool_name` before comparing,
-  so the `Write|Edit` matcher in `settings.json` reaches it.
+- `docs-gate.mjs` is the dsh gate as a hook. It imports the classifier, the tiers,
+  the workspace walk, the content fingerprint and the credit store from
+  `agents/dsh/presets/renks/`, so both harnesses deny the same calls for the same
+  missing docs. It runs before Edit, Write, MultiEdit, NotebookEdit and Bash,
+  credits after Read and Bash, and costs no model tokens until it denies. Four
+  things differ from dsh. A hook is a new process per call, so the credits live
+  on disk under `~/.claude/state/docs-gate/<session>/`, one file per doc.
+  Compaction and `/clear` reset them, the optional store included, because a
+  compacted session holds a summary of the rules and not the rules. A `cat` of
+  a whole doc counts as a read, but only when the doc's full current content is
+  in the command's stdout. And the denial lists absolute paths, which the Read
+  tool takes as written. In token mode `AGENTS.md` joins the required set,
+  because that mode no longer injects it. In a git repository with no
+  `.ai/project.md` the first denial asks for `ai-init` instead, as described
+  under "The `.ai/` directory".
+  `DOCS_GATE_DISABLED=1` turns it off; `DOCS_GATE_CREDIT_STORE=<path>` turns on
+  the cross-session store, off by default for the reason the preset README gives.
+
+  How both harnesses judge a Bash command. It is parsed into simple commands
+  (`docs-gate-shell.mjs`), so words inside strings, heredoc bodies and comments
+  are text. git counts by subcommand and flags: `git log`, `git merge-base`,
+  `git tag -l` and `git stash list` pass, `git commit`, `git switch` and
+  `git tag v1` do not. File commands and redirects count only when the target is
+  inside the workspace, after any `cd`, so `mkdir -p /tmp/x` passes. Inline
+  interpreter code (`python -c`, `python - <<EOF`, `node -e`, `bash -c`) is
+  scanned for write and process calls, and shell code (`bash -c`, `echo ... | sh`)
+  is parsed like the rest; a program piped in from somewhere unreadable, such as
+  `curl ... | sh`, counts as a write. That scan is a tripwire, not a sandbox, and
+  a script file is not read at all. A command that does several things needs the
+  docs of all of them, so `rm a.txt && git commit` asks for the code tier and the
+  commit docs. Inline Python that runs only literal, read-only commands through
+  `subprocess` (`git ls-files`, `git show`) passes; any other `subprocess` use
+  counts. Replayed with `node tools/replay-gate-denials.mjs` over the 241 `bash`
+  calls the old regex classifier denied in recorded dsh sessions, 180 were
+  queries and now pass; the 61 still denied write to the workspace or run a
+  process the gate cannot read.
+
+  Three things keep a denial from turning into a loop. A Read with `offset` or
+  `limit` that misses part of a doc is not a credit, and the agent is told so
+  next to the tool result, in dsh and in Claude Code. Every denial ends by
+  naming the exit, tell the user and
+  stop, and says writing another way is gated too; that wording comes from a
+  measured study in which only "report and stop" brought circumvention to zero
+  (`core/docs/sources.md`). The third identical denial of a call says that
+  retrying it unchanged will not help.
+- `block-danger` runs before a Bash call and denies a fixed list: a recursive
+  forced `rm` (combined, split, quoted or trailing flags), `sudo`, a force push
+  (`-f`, `--force`, or a `+ref` refspec), `chmod 777`, raw disk writes (`dd`,
+  `mkfs`, `> /dev/sd*`), and `git add -A`, `--all` or `.`, which the shared rules
+  ban for every tool. It is a tripwire for the usual spellings, not a sandbox:
+  `find -delete` or an interpreter can still delete. It matches the whole command
+  text, heredoc bodies included, so a script that only carries one of those
+  strings as data has to live in a file.
+- `lint-check` reports after a write or edit: ruff for Python, `go vet` for Go,
+  `rustfmt --check` for Rust, `node --check` for JavaScript and `bash -n` for
+  shell. The report goes to stdout as `additionalContext`, which is the channel
+  Claude reads after a tool call. Until 2026-11 it went to stderr with exit 0,
+  which only reaches the debug log, so no lint report had ever reached the model.
+  A missing linter is said once per session, and Python still gets a syntax
+  check without ruff.
 
 `session-init` is the one piece that waits to be asked for. It would create `.ai/`
 wherever a session starts, which surprised projects that chose not to initialize,
@@ -528,7 +807,34 @@ directories are never opened.
 `settings.json` also carries the permission lists. A set of routine commands is
 pre-approved: builds, tests, git read commands, file inspection, and network
 fetches. Denied outright: `git push`, every `rm`, `git add -A`, `sudo`,
-`chmod 777`, `chown`, `shutdown`, `reboot`, `mkfs`, and `dd`.
+`chmod 777`, `chown`, `shutdown`, `reboot`, `mkfs`, and `dd`. A multi-word rule
+is written `Bash(git diff:*)`. The file used `Bash(git:diff*)` until 2026-11,
+which names a command starting with `git:diff`, so those rules matched nothing;
+`tools/test-hooks.mjs` now rejects that spelling.
+
+`~/.claude/settings.json` is a link to this file, and Claude Code writes user
+settings such as the theme into it, so a `/config` change shows up in
+`git status` here. That is the usual cost of a linked dotfile. Commit the
+change if it should follow you to other machines, or `git restore` it if not.
+There is no user-level `settings.local.json` to move it into (Claude Code
+settings docs, retrieved 2026-11-24).
+
+The Bash sandbox is left off here, because this file applies to every project.
+docs-gate and `block-danger` are tripwires; the sandbox is the hard boundary,
+enforced by the OS, and by default it limits Bash writes to the working
+directory. Turn it on per project, in that project's `.claude/settings.json`:
+
+```json
+{
+  "sandbox": { "enabled": true, "allowUnsandboxedCommands": false },
+  "permissions": { "blockWritesOutsideWorkingDirectories": true }
+}
+```
+
+`allowUnsandboxedCommands: false` removes the retry outside the sandbox, and
+`blockWritesOutsideWorkingDirectories` (Claude Code 2.1.314+) gives the Write
+and Edit tools the same limit, since the sandbox covers Bash only. Commands
+that need more, such as `docker`, go in `sandbox.excludedCommands`.
 
 The shared rules carry the git-add ban for every tool. The destructive-command
 list lives only in the Claude Code hook and its settings, so other tools do not
@@ -540,12 +846,15 @@ inherit it.
 |---|---|
 | `plan` | surveys the repo and writes a numbered implementation plan with success criteria |
 | `onboard` | reads an existing codebase like a new engineer, then asks about what is still unclear |
+| `audit` | first audit of an existing project and its related repos, every fact with evidence, then open questions |
+| `quality-audit` | tools first, then findings proven by a reproduction or a traced path, unproven ones kept apart |
+| `kickoff` | asks about what an issue leaves out, reproduces it in its own worktree, then plans and stops |
 | `context` | files knowledge from the conversation into the right `.ai/` files |
 | `review` | reviews the pending diff, unpushed commits, linters, and tests |
 | `ship` | prepares a commit: verifies the staged diff, writes the message, runs the pre-commit checks |
 | `ci` | runs lint, test, build, and security scan locally, then reports pass or fail |
 | `debug` | works a bug down systematically: reproduce, isolate, verify assumptions, fix the cause, keep the regression test |
-| `worktrees` | does the work in a git worktree so the main checkout stays untouched, then lands and cleans up the branch |
+| `worktrees` | gives each task its own worktree with `ai-worktree`, so parallel tasks never share a checkout, then lands and cleans up the branch |
 | `dispatch` | splits independent work across parallel subagents and verifies each result before merging it |
 | `extend-config` | creates or updates files in this repo following the authoring spec |
 
@@ -609,19 +918,24 @@ covers the resolution order.
 Run before finishing any change to this config:
 
 ```bash
-for f in setup.sh ai-init ai-context agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
+for f in setup.sh ai-init ai-context ai-worktree ai-survey ai-lint ai-skeleton agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
 for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done                # plugin syntax
 node --test 'agents/dsh/presets/renks/*.spec.mjs'                                  # gate behaviour and tiers
+node --test 'tools/*.spec.mjs'                                                     # stock resolver, helper parsers, Claude docs-gate, audit, setup modes
+node tools/test-hooks.mjs                                                          # Claude Code hooks and their settings.json wiring
+node tools/replay-gate-denials.mjs                                                 # recorded gate denials replayed through the current bash rules
 node tools/build-preset-recipe.mjs --check                                         # preset recipe in sync with installed stock
 find . -type l ! -exec test -e {} \; -print                                        # broken symlinks
-python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/CLAUDE.md')))"  # injection budget
+python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/claude-code.md')))"  # injection budget
 ```
 
 Each check needs its own loop: `bash -n` and `node --check` only inspect the
 first file they are given. The last check needs `tiktoken` (`pip install
 tiktoken`), which is not a repo dependency. It measures what a first request
-carries: ~2467 tokens as of 2026-10-05 against the ~2.5K ceiling, so roughly 30
-tokens of slack (`core/docs/evals.md` records the method and the older reading).
+carries in subscription mode: 2485 tokens on o200k_base as of 2026-11-23 (AGENTS.md
+2289, `claude-code.md` 165, the import lines of `CLAUDE.md` 31) against the 2.5K
+ceiling, so 15 tokens of slack. Token mode carries 293 (`core/docs/evals.md`
+records the method and the older readings).
 
 Skill frontmatter needs `name` and `description`, with `name` matching the
 directory. Rule frontmatter needs `description`, `globs`, and

@@ -1,24 +1,60 @@
 #!/usr/bin/env bash
 # PreToolUse hook: block dangerous commands
-# Reads JSON from stdin, exits 2 to deny, 0 to allow
+# Reads JSON from stdin, exits 2 to deny, 0 to allow. With exit 2 Claude Code
+# hands stderr to the model as the reason.
+#
+# It matches the whole command text, heredoc bodies included, so a command that
+# merely carries a banned string as data is blocked too. Put such data in a file.
+# It is a tripwire for the common spellings, not a sandbox: the deny rules in
+# settings.json back it up, and `find -delete` or an interpreter can still delete.
 
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
-ARGS=$(echo "$INPUT" | jq -r '.tool_input // ""')
+# The command itself, not the JSON-encoded tool input: matching the encoding saw
+# `\n` and `\"` where the shell sees a newline and a quote.
+CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 
-# Block dangerous bash commands
+deny() {
+    echo "{\"systemMessage\": \"Blocked: $1 If intentional, explain why.\"}" >&2
+    exit 2
+}
+
+# A recursive, forced rm: -rf, -fr, -Rf, -r -f, --recursive --force, quoted flags,
+# and flags after the operands, which GNU rm accepts. Each rm invocation is read
+# up to its command separator, so `rm -r a; ls -f` is not one.
+is_force_rm() {
+    local call token recursive force tokens
+    while IFS= read -r call; do
+        recursive=0
+        force=0
+        # read -a splits without glob expansion, so an operand like `*` stays text.
+        read -ra tokens <<< "$(echo "$call" | tr -d "\"'")"
+        for token in "${tokens[@]}"; do
+            case "$token" in
+                --recursive) recursive=1 ;;
+                --force) force=1 ;;
+                --*) ;;
+                -*)
+                    [[ "$token" == *[rR]* ]] && recursive=1
+                    [[ "$token" == *f* ]] && force=1
+                    ;;
+            esac
+        done
+        [ "$recursive" = 1 ] && [ "$force" = 1 ] && return 0
+    done < <(echo "$1" | grep -oE '(^|[^a-zA-Z0-9_-])rm\s[^;&|]*')
+    return 1
+}
+
 if [ "$TOOL" = "Bash" ] || [ "$TOOL" = "bash" ]; then
-    # Block rm -rf, sudo, git push --force, chmod 777
-    if echo "$ARGS" | grep -qE 'rm\s+-rf|sudo|git\s+push\s+--force|chmod\s+777|> /dev/sda|mkfs\.|dd\s+if='; then
-        echo '{"systemMessage": "Blocked: dangerous command detected. If intentional, explain why."}' >&2
-        exit 2
-    fi
-
-    # Block git add -A / git add .
-    if echo "$ARGS" | grep -qE 'git\s+add\s+-A|git\s+add\s+\.($|[^a-zA-Z])'; then
-        echo '{"systemMessage": "Blocked: git add -A/. not allowed. Stage explicit files."}' >&2
-        exit 2
-    fi
+    is_force_rm "$CMD" && deny "recursive forced rm."
+    # Word-bounded, so `pseudo` and `sudoers` pass.
+    echo "$CMD" | grep -qE '\bsudo\b' && deny "sudo."
+    # -f, --force, or a `+ref` refspec, within this one git command.
+    echo "$CMD" | grep -qE '\bgit\s+push\b[^;&|]*(\s-f\b|--force|\s\+\S)' && deny "force push."
+    echo "$CMD" | grep -qE 'chmod\s+777|> ?/dev/sd|mkfs\.|\bdd\s+if=' && deny "dangerous command detected."
+    # The shared rules ban staging everything, for every tool. `git add ./x` and
+    # `git add .gitignore` name files and pass.
+    echo "$CMD" | grep -qE '\bgit(\s+-C\s+\S+)?\s+add\s+(-A\b|--all\b|\.(\s|$|[;&|]))' && deny "git add -A/--all/. not allowed. Stage explicit files."
 fi
 
 exit 0

@@ -27,7 +27,7 @@
  * until a read succeeds, and a store that cannot be parsed is ignored rather than
  * fatal.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { fingerprint } from './docs-gate-credit.mjs'
 
 /**
@@ -62,7 +62,11 @@ export function recordRead(path, docs, doc, content) {
   if (path === undefined || content === undefined) return false
   const next = { ...docs, [doc.id]: { hash: fingerprint(content), at: new Date().toISOString() } }
   try {
-    writeFileSync(path, `${JSON.stringify({ version: 1, docs: next }, null, 2)}\n`)
+    // Through a rename, so a reader in another process never parses a half
+    // written file as empty: the Claude Code hook runs one process per call.
+    const tmp = `${path}.${process.pid}.tmp`
+    writeFileSync(tmp, `${JSON.stringify({ version: 1, docs: next }, null, 2)}\n`)
+    renameSync(tmp, path)
     return true
   } catch {
     // A read-only home, a full disk: the gate keeps working without this.

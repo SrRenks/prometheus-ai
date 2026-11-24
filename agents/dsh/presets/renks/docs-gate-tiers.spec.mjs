@@ -19,6 +19,7 @@ import {
   mount,
   readDoc,
 } from './docs-gate.testkit.mjs'
+import { REQUIRED_DOCS, classifyBash, redirectTarget, requiredDocsFor } from './docs-gate-policy.mjs'
 
 test('a prose change needs only the core rules', async () => {
   // The friction this tier exists to remove: editing a README should not require
@@ -175,4 +176,34 @@ test('a path that merely contains the letters .ai is not an .ai/ target', async 
   assert.equal(denied.kind, 'deny')
   const demanded = denied.reason.split('\n').filter(line => /^\s+- /.test(line))
   assert.ok(!demanded.some(line => line.includes('AGENTS.md')), '.aix is not the .ai directory')
+})
+
+test('writing to a discard or terminal device is not a workspace mutation', () => {
+  // With no VCS marker the boundary is unknown, and an unknown boundary gates
+  // every redirect. `2>/dev/null` is the commonest redirect there is and changes
+  // nothing, so denying it taxed read-only exploration in an uninitialized
+  // directory.
+  for (const command of ['ls x 2>/dev/null', 'echo e >/dev/stderr', 'echo o > /dev/stdout', 'cmd &>/dev/null', 'echo x >/dev/fd/2']) {
+    assert.equal(classifyBash(command, undefined, undefined), undefined, command)
+  }
+  // Only the device is exempt: a real file next to it still counts.
+  assert.equal(classifyBash('ls 2>/dev/null > out.log', undefined, undefined), 'redirect')
+  // And the tier is picked from the real file, so a Python target still needs
+  // the Python guide when a discard comes first.
+  assert.equal(redirectTarget('ls 2>/dev/null > a.py'), 'a.py')
+  assert.equal(redirectTarget('ls 2>/dev/null'), undefined)
+})
+
+test('requiredDocsFor unions the tier, the language and the commit trigger', () => {
+  const docs = REQUIRED_DOCS.map(doc => ({ ...doc, path: `/cfg/${doc.repoPath}` }))
+  const ids = (call, command) => requiredDocsFor(call, command, docs).map(doc => doc.id).sort()
+  assert.deepEqual(ids({ kind: 'write', target: '/w/README.md' }), ['principles'])
+  assert.deepEqual(
+    ids({ kind: 'edit', target: '/w/a.py' }),
+    ['complexity', 'development-workflow', 'lang-python', 'maintainability', 'principles'],
+  )
+  assert.deepEqual(ids({ kind: 'git-write', target: undefined }, 'git commit -m x'), ['ai-writing', 'git-workflow', 'principles'])
+  // A checkout missing the code tier caps the requirement at what it has.
+  const coreOnly = docs.filter(doc => doc.tier !== 'code')
+  assert.deepEqual(requiredDocsFor({ kind: 'edit', target: '/w/a.ts' }, undefined, coreOnly).map(doc => doc.id), ['principles'])
 })

@@ -2,10 +2,42 @@
 # setup.sh - Install prometheus-ai for every supported tool on this machine.
 # Run once per machine (idempotent). Derives paths from its own location,
 # so the repo can be cloned anywhere.
+#
+# Usage: setup.sh [--mode token|subscription]
+#   subscription  Claude Code imports AGENTS.md into every session (flat-rate plan).
+#   token         Claude Code gets a short pointer instead and docs-gate enforces
+#                 the reads, as the dsh preset does (pay-per-token billing).
+# Without --mode a re-run keeps the mode this machine is already in.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR="${SRC}/backups/$(date +%Y%m%d-%H%M%S)"
+
+MODE=""
+MODE_GIVEN=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --mode)
+            [ $# -ge 2 ] || { echo "setup.sh: --mode needs token or subscription" >&2; exit 2; }
+            MODE="$2"; MODE_GIVEN=1; shift 2 ;;
+        --mode=*) MODE="${1#--mode=}"; MODE_GIVEN=1; shift ;;
+        -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "setup.sh: unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+if [ "$MODE_GIVEN" = 0 ]; then
+    # The link already in place is the record of the mode, so no state file
+    # can disagree with what Claude Code actually loads.
+    case "$(readlink "$HOME/.claude/CLAUDE.md" 2>/dev/null || true)" in
+        *CLAUDE.token.md) MODE=token ;;
+        *) MODE=subscription ;;
+    esac
+fi
+case "$MODE" in
+    token) CLAUDE_MD=CLAUDE.token.md ;;
+    subscription) CLAUDE_MD=CLAUDE.md ;;
+    *) echo "setup.sh: --mode must be token or subscription, got '$MODE'" >&2; exit 2 ;;
+esac
 
 backup() {
     local target="$1"
@@ -42,7 +74,7 @@ if [ "$SRC" != "$CANONICAL" ]; then
 fi
 
 # ── Claude Code ──────────────────────────────────────────────────────────────
-symlink "$SRC/agents/claude-code/CLAUDE.md"       "$HOME/.claude/CLAUDE.md"
+symlink "$SRC/agents/claude-code/$CLAUDE_MD"      "$HOME/.claude/CLAUDE.md"
 symlink "$SRC/agents/claude-code/CLAUDE.local.md" "$HOME/.claude/CLAUDE.local.md"
 symlink "$SRC/agents/claude-code/settings.json"   "$HOME/.claude/settings.json"
 symlink "$SRC/skills"                             "$HOME/.claude/skills"
@@ -82,21 +114,22 @@ else
     echo "  wired: ~/.gitconfig includes $IDENT for ~/Projects/** and ~/.config/**"
 fi
 
-# ── ai-init / ai-context commands ────────────────────────────────────────────
+# ── per-project commands ─────────────────────────────────────────────────────
 mkdir -p "$HOME/.local/bin"
-ln -sfn "$SRC/ai-init" "$HOME/.local/bin/ai-init"
-ln -sfn "$SRC/ai-context" "$HOME/.local/bin/ai-context"
-echo "  linked: ~/.local/bin/ai-init -> $SRC/ai-init"
-echo "  linked: ~/.local/bin/ai-context -> $SRC/ai-context"
+for cmd in ai ai-init ai-context ai-survey ai-lint ai-skeleton ai-worktree; do
+    ln -sfn "$SRC/$cmd" "$HOME/.local/bin/$cmd"
+    echo "  linked: ~/.local/bin/$cmd -> $SRC/$cmd"
+done
 
 echo ""
 echo "Done. Installed:"
 echo "  Claude Code : ~/.claude/ (CLAUDE.md, skills, hooks, rules, commands, settings.json)"
+echo "                mode: $MODE ($CLAUDE_MD)"
 echo "  Codex       : ~/.codex/AGENTS.md"
 echo "  Gemini CLI  : ~/.gemini/GEMINI.md"
 echo "  Cursor      : ~/.cursor/rules"
 echo "  Generic     : ~/.agents/AGENTS.md"
-echo "  Commands    : ~/.local/bin/ai-init, ai-context"
+echo "  Commands    : ~/.local/bin/ai (status, init, task, ...), ai-init, ai-context, ai-survey, ai-lint, ai-skeleton, ai-worktree"
 echo "  Git identity : ~/.config/git/identity (conditional include from ~/.gitconfig)"
 echo ""
 echo "dsh (DeepSeek Harness) is installed separately:"
@@ -121,10 +154,21 @@ echo ""
 # Mirrors the Guardrails table in README.md; an edit here belongs there too.
 echo "Where the shared rules are enforced, not just read:"
 echo "  dsh          docs-gate denies a mutating tool call until the docs are read"
-echo "  Claude Code  block-danger and lint-check hooks"
+echo "  Claude Code  docs-gate hook (same rules as dsh), block-danger, lint-check"
 echo "  Cursor       none - rules activate by glob, nothing mediates"
 echo "  Codex        none - prose only"
 echo "  Gemini CLI   none - prose only"
+echo ""
+# The Claude Code hooks need these, and fail open without them: a guard that is
+# silently off is the case this report exists for.
+for tool in node jq; do
+    command -v "$tool" >/dev/null 2>&1 ||
+        printf '  missing: %s - the Claude Code hooks do nothing without it\n' "$tool"
+done
+if [ "$MODE" = token ]; then
+    echo "  token mode: Claude Code reads AGENTS.md on demand. Codex and Gemini still"
+    echo "  get it in full, because nothing there enforces a read."
+fi
 echo ""
 echo "Tooling the language guides expect (per core/docs/languages/):"
 for tool in uv ruff mypy radon bandit golangci-lint cargo-audit clippy; do

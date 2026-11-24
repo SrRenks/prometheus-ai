@@ -17,7 +17,8 @@
  *     at a median of 3 tool calls in. Numbers move as sessions accumulate;
  *     re-run tools/audit-instruction-reads.mjs rather than quoting these.
  *
- * WHAT THIS DOES. It observes `tools/pre-execute` and returns
+ * WHAT THIS DOES. It observes `tools/pre-execute` (and `tools/post-execute`,
+ * only to say that a read of a gated doc covered part of it) and returns
  * `{ kind: 'deny' }` for a MUTATING call until the session has read each
  * required doc once. The denial reaches the model as the tool result, so the
  * corrective instruction arrives exactly where the model is looking.
@@ -41,8 +42,11 @@
  * context.
  */
 
-import { createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
+import { randomUUID } from 'node:crypto'
+
+import { coversWhole, createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
 import { createSeamFor } from './docs-gate-seam.mjs'
+import { registerFlowRouter } from './flow-router-dsh.mjs'
 import { loadStore, recordRead, seedLedger, storeEnabled } from './docs-gate-store.mjs'
 import {
   absolutePath,
@@ -51,27 +55,26 @@ import {
   cwdOf,
   defaultRepoRoots,
   denyMutation,
+  denyUninitialized,
   denyUnresolved,
   describeError,
-  docsForTier,
+  fileExists,
+  findProjectDoc,
   findWorkspaceRoot,
-  isAiTarget,
-  isCommitCommand,
   isMutationTool,
-  languageForTarget,
+  joinPath,
+  needsInit,
   normalizePath,
+  optOutPaths,
+  partialReadNote,
   pathOf,
-  requiredTier,
+  requiredDocsFor,
   resolveRequiredDocs,
   rootSessionId,
-  tierCeiling,
-  TIERS,
+  setsUpInit,
 } from './docs-gate-policy.mjs'
 
 export * from './docs-gate-policy.mjs'
-
-/** Mutation kinds that can carry the commit act. */
-const COMMIT_KINDS = new Set(['git-write', 'gh-write', 'lazygit'])
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'docs-gate'
@@ -89,7 +92,7 @@ export const name = 'docs-gate'
  * @param options.log - records a warning once per process.
  * @returns the gate's state accessors.
  */
-function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
+function createStore({ seamFor, repoRoots, extraDocs, creditStore, requireInit, log }) {
   const sessions = new Map()
 
   /** Load or create the record for one root session. */
@@ -99,6 +102,10 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
       state = {
         ledger: createLedger(), docs: undefined, root: undefined, boundary: undefined,
         pending: undefined, resolvedAt: undefined, failure: undefined,
+        // Denials per exact call, and docs read only in part: both feed the denial text.
+        denials: new Map(), partial: new Set(),
+        // The config checkout (exempt from the init check) and the per-clone opt-out.
+        configRoot: undefined, optedOut: false,
       }
       sessions.set(id, state)
     }
@@ -131,8 +138,7 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
 
     const resolved = await resolveRequiredDocs({ seam, workspaceRoot: state.root, repoRoots, extraDocs, signal })
     state.docs = [...(resolved.configDocs ?? []), ...(resolved.projectDocs ?? [])]
-    // A checkout missing the code-tier files cannot gate on them.
-    state.ceiling = tierCeiling(state.docs)
+    state.configRoot = resolved.repoRoot
     // Optional, off unless `creditStore` names a path. Seeded only for docs whose
     // content still hashes to what a previous session read, and logged, because a
     // session that mutates without the rules in context while the gate reports
@@ -166,7 +172,7 @@ function createStore({ seamFor, repoRoots, extraDocs, creditStore, log }) {
   /** The configured credit store path, or undefined when the feature is off. */
   const creditStorePath = () => (storeEnabled(creditStore) ? creditStore : undefined)
 
-  return { stateFor, resolveOnce, seamFor, creditStorePath }
+  return { stateFor, resolveOnce, seamFor, creditStorePath, requireInit }
 }
 
 /**
@@ -201,6 +207,14 @@ async function creditRead(store, agent, exec, seam) {
   } catch {
     return
   }
+  // A slice is not a read of the rules. It is remembered, so the next denial
+  // can say why this doc is still listed.
+  if (!coversWhole(exec.arguments, content)) {
+    state.partial.add(doc.id)
+    sliceReads.set(exec, doc.path)
+    return
+  }
+  state.partial.delete(doc.id)
   const credited = state.ledger.record(exec, content, state.docs)
   // Written only on a real read, through the same fingerprint the ledger stores,
   // so the two cannot disagree about what was read.
@@ -255,20 +269,12 @@ async function gateCall(store, log, exec, next) {
     return next()
   }
 
-  // Three independent selectors: the tier ladder, the language of the file being
-  // changed, and whether this call is the commit act itself. The commit selector
-  // is computed first because it also tells the ladder not to climb: a commit
-  // adds the commit-time docs and nothing else.
-  const isCommit = COMMIT_KINDS.has(call.kind) && isCommitCommand(commandOf(exec.arguments))
-  const wanted = requiredTier(call.kind, call.target, { commits: isCommit })
-  // The ceiling keeps a checkout that lacks the code-tier files from gating on
-  // them.
-  const tier = state.ceiling !== undefined && tierOf(wanted) > tierOf(state.ceiling) ? state.ceiling : wanted
-  const requiredDocs = docsForTier(tier, state.docs, {
-    language: languageForTarget(call.target),
-    commits: isCommit,
-    aiTargets: isAiTarget(call.target),
-  })
+  const uninitialized = await initDenial(store, state, call, exec)
+  if (uninitialized !== undefined) return uninitialized
+
+  // The tier ladder, the language of the file being changed, and whether this
+  // call is the commit act itself: see `requiredDocsFor`.
+  const requiredDocs = requiredDocsFor(call, commandOf(exec.arguments), state.docs)
   // A credit counts only while the document still holds the content that was
   // read. A doc edited mid-session invalidates its credit on purpose: the agent
   // read the old rules, and the old rules are not what governs the change.
@@ -283,7 +289,51 @@ async function gateCall(store, log, exec, next) {
   // instead of gating it: the pointer costs one line, the gate would cost
   // ~2.3K tokens on every mutation.
   const index = state.docs.find(doc => doc.id === 'agents-index')
-  return denyMutation(exec, call.kind, missing, index?.display)
+  return denyMutation(exec, call.kind, missing, {
+    repeats: countDenial(state, exec),
+    partial: state.partial,
+    index: index?.display,
+  })
+}
+
+/** Count one more denial of this exact call, for the repeat advice. */
+function countDenial(state, exec) {
+  const key = `${exec.name}\0${JSON.stringify(exec.arguments)}`
+  const repeats = (state.denials.get(key) ?? 0) + 1
+  state.denials.set(key, repeats)
+  return repeats
+}
+
+/**
+ * Deny a change in a git workspace that has not been initialized, or return
+ * undefined to let the docs check run. The doc set is cached per session, so
+ * while the workspace is uninitialized `.ai/project.md` and the opt-out marker
+ * are probed again on each mutation: `ai-init` run mid-session lifts the check.
+ *
+ * @returns a deny decision, or undefined.
+ */
+async function initDenial(store, state, call, exec) {
+  if (!needsInit({ boundary: state.boundary, docs: state.docs, configRoot: state.configRoot, required: store.requireInit })) return undefined
+  const seam = store.seamFor(cwdOf(exec.agent) ?? process.cwd(), exec.signal)
+  const projectDoc = await findProjectDoc(seam, state.boundary, exec.signal)
+  if (projectDoc !== undefined) {
+    state.docs.push({ id: 'project', path: projectDoc, display: projectDoc })
+    return undefined
+  }
+  state.optedOut = await optedOut(seam, state.boundary, exec.signal)
+  if (state.optedOut || setsUpInit(call, state.boundary)) return undefined
+  return denyUninitialized(exec, call.kind, state.boundary, { repeats: countDenial(state, exec) })
+}
+
+/** Has the user opted this clone out? `.git` is a file in a worktree or a submodule. */
+async function optedOut(seam, boundary, signal) {
+  const dotGit = normalizePath(joinPath(boundary, '.git'))
+  let text
+  if (await fileExists(seam, dotGit, signal)) text = await seam.readText(dotGit).catch(() => '')
+  for (const path of optOutPaths(boundary, text)) {
+    if (await fileExists(seam, path, signal)) return true
+  }
+  return false
 }
 
 /**
@@ -307,20 +357,11 @@ async function holdsContent(state, doc, seam) {
 }
 
 /**
- * Rank one tier name for comparison.
- *
- * @param tier - a tier name.
- * @returns its index, or -1 when unknown.
- */
-function tierOf(tier) {
-  return TIERS.indexOf(tier)
-}
-
-/**
  * Register the read-before-mutate gate.
  *
  * @param ctx - the cordis context.
- * @param config - optional `disabled` and `repoRoots`.
+ * @param config - optional `disabled`, `repoRoots`, `requireInit`, and
+ *   `flowRouter: false` to turn off the next-step notes and the branch-switch block.
  */
 export function apply(ctx, config = {}) {
   if (config.disabled === true) return
@@ -347,7 +388,20 @@ export function apply(ctx, config = {}) {
     ...(Array.isArray(config.repoRoots) ? config.repoRoots : []),
     ...defaultRepoRoots(),
   ]
-  const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], creditStore: creditStorePath, log })
+  // On unless the preset config or the environment switches it off.
+  const requireInit = config.requireInit !== false && process.env.DOCS_GATE_REQUIRE_INIT !== '0'
+  const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], creditStore: creditStorePath, requireInit, log })
+  // The next-step notes and the branch-switch block (flow-router-dsh.mjs).
+  if (config.flowRouter !== false) {
+    // Its own logger, so a router warning cannot use up the gate's one warning.
+    registerFlowRouter(ctx, (message) => {
+      try {
+        ctx.logger?.warn?.(`${name}: ${message}`)
+      } catch {
+        // Logging is best-effort.
+      }
+    })
+  }
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     try {
@@ -358,4 +412,20 @@ export function apply(ctx, config = {}) {
       return next()
     }
   })
+
+  // A slice of a gated doc is said next to the tool result, so the agent learns
+  // it before the next change is denied for it, as in the Claude Code hook. The
+  // verdict is the one creditRead reached for this very call, not session state.
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const downstream = await next()
+    const path = sliceReads.get(exec)
+    if (path === undefined || result?.isError === true || downstream?.kind !== 'accept') return downstream
+    const text = { type: 'text', text: partialReadNote(path) }
+    const message = Object.freeze({ id: randomUUID(), role: 'user', source: Object.freeze({ kind: name }), content: Object.freeze([Object.freeze(text)]) })
+    const others = Array.isArray(downstream.additionalContexts) ? downstream.additionalContexts : []
+    return { ...downstream, additionalContexts: [message, ...others] }
+  })
 }
+
+/** Read calls that covered only part of a gated doc, with that doc's path. */
+const sliceReads = new WeakMap()

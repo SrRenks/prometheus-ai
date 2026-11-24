@@ -1,30 +1,33 @@
 /**
  * docs-gate policy: the filesystem seam, the doc resolution, and the denials.
  *
- * Two siblings hold what is not here: `docs-gate-target.mjs` owns path and
- * command parsing, `docs-gate-tiers.mjs` owns which docs a mutation needs. Both
- * are re-exported below, so `docs-gate.mjs`, the spec and the verifier keep
+ * Siblings hold what is not here: `docs-gate-target.mjs` owns paths and the
+ * workspace boundary, `docs-gate-bash.mjs` (on `docs-gate-shell.mjs`) decides
+ * which `bash` commands mutate, and `docs-gate-tiers.mjs` owns which docs a
+ * mutation needs. All are re-exported below, so `docs-gate.mjs`, the spec and the verifier keep
  * importing one module.
  *
  * See `docs-gate.mjs` for why the gate exists and what it refuses to gate.
  */
 
 export * from './docs-gate-target.mjs'
+export * from './docs-gate-bash.mjs'
+export * from './docs-gate-init.mjs'
 export * from './docs-gate-tiers.mjs'
 
+import { classifyBashCall, redirectTarget } from './docs-gate-bash.mjs'
 import {
-  classifyBash,
   commandOf,
   isInside,
   joinPath,
   normalizePath,
   parentPath,
   pathOf,
-  redirectTarget,
   workdirOf,
 } from './docs-gate-target.mjs'
 
 import { REQUIRED_DOCS } from './docs-gate-tiers.mjs'
+import { INIT_EXIT, mainCheckoutRoot, uninitializedLines } from './docs-gate-init.mjs'
 
 /** Project-local doc required when the workspace has one. */
 const PROJECT_DOC_REPO_PATH = '.ai/project.md'
@@ -161,11 +164,11 @@ export function classifyCall(exec, boundary) {
     const base = workdir === undefined
       ? boundary
       : workdir.startsWith('/') ? workdir : joinPath(boundary ?? '/', workdir)
-    const kind = classifyBash(command, base, boundary)
-    if (kind === undefined) return undefined
-    // A redirect names its target; a commit or an install does not, and is
-    // code-tier regardless.
-    return { kind, target: redirectTarget(command) }
+    const hit = classifyBashCall(command, base, boundary)
+    if (hit === undefined) return undefined
+    // A redirect or a file command names its target; a commit or an install
+    // does not, and is code-tier regardless.
+    return { kind: hit.kind, target: hit.target ?? redirectTarget(command), hits: hit.hits }
   }
   return undefined
 }
@@ -234,7 +237,7 @@ export function isBoundaryFailure(error) {
 }
 
 /** Probe one absolute path for a regular file. */
-async function fileExists(seam, path, signal) {
+export async function fileExists(seam, path, signal) {
   const info = await statOrUndefined(seam, path, signal)
   return info !== undefined && info.type === 'file'
 }
@@ -308,6 +311,27 @@ export async function resolveRequiredDocs({ seam, workspaceRoot, repoRoots, extr
 }
 
 /**
+ * Where this workspace's `.ai/project.md` is: its own, or in a linked worktree
+ * the main checkout's, since `.ai/` is local and a new worktree has none.
+ *
+ * @param seam - the host fs service surface.
+ * @param workspaceRoot - absolute workspace root.
+ * @param signal - cancellation signal.
+ * @returns the absolute path of the project doc, or undefined.
+ */
+export async function findProjectDoc(seam, workspaceRoot, signal) {
+  const root = normalizePath(workspaceRoot)
+  const own = normalizePath(joinPath(root, PROJECT_DOC_REPO_PATH))
+  if (await fileExists(seam, own, signal)) return own
+  const dotGit = normalizePath(joinPath(root, '.git'))
+  if (!await fileExists(seam, dotGit, signal)) return undefined
+  const main = mainCheckoutRoot(root, await seam.readText(dotGit).catch(() => undefined))
+  if (main === undefined) return undefined
+  const shared = normalizePath(joinPath(main, PROJECT_DOC_REPO_PATH))
+  return await fileExists(seam, shared, signal) ? shared : undefined
+}
+
+/**
  * Resolve the workspace-local docs: `.ai/project.md` and any configured extras.
  *
  * @param options.seam - the host fs service surface.
@@ -319,10 +343,8 @@ export async function resolveRequiredDocs({ seam, workspaceRoot, repoRoots, extr
 async function resolveWorkspaceDocs({ seam, workspaceRoot, extraDocs, signal }) {
   if (workspaceRoot === undefined) return { projectDocs: [] }
   const projectDocs = []
-  const projectDoc = normalizePath(joinPath(workspaceRoot, PROJECT_DOC_REPO_PATH))
-  if (await fileExists(seam, projectDoc, signal)) {
-    projectDocs.push({ id: 'project', path: projectDoc, display: `${normalizePath(workspaceRoot)}/.ai/project.md` })
-  }
+  const projectDoc = await findProjectDoc(seam, workspaceRoot, signal)
+  if (projectDoc !== undefined) projectDocs.push({ id: 'project', path: projectDoc, display: projectDoc })
   for (const extra of extraDocs) {
     const path = normalizePath(joinPath(workspaceRoot, extra))
     if (await fileExists(seam, path, signal)) projectDocs.push({ id: `extra:${extra}`, path, display: extra })
@@ -372,10 +394,12 @@ async function resolveConfigDocs({ seam, repoRoots, signal }) {
  * @param exec - the denied call.
  * @param kind - the mutation kind the classifier reported.
  * @param missing - the docs still unread for this call's tier.
- * @param index - display path of the top-level contract, when resolved.
+ * @param options.repeats - how many times this exact call has been denied.
+ * @param options.partial - ids of docs this session read only a slice of.
+ * @param options.index - display path of the top-level contract, when resolved.
  * @returns a `deny` decision carrying the actionable message.
  */
-export function denyMutation(exec, kind, missing, index = '~/.config/prometheus-ai/AGENTS.md') {
+export function denyMutation(exec, kind, missing, { repeats = 1, partial = new Set(), index = '~/.config/prometheus-ai/AGENTS.md' } = {}) {
   const indexMissing = missing.some(doc => doc.id === 'agents-index')
   const pointer = indexMissing
     ? []
@@ -386,13 +410,58 @@ export function denyMutation(exec, kind, missing, index = '~/.config/prometheus-
       `${exec.name} is blocked once per session (${kind}): the behavioural rules for this workspace have not been read yet.`,
       '',
       'Read each of these with the `read` tool, then repeat the call. The gate lifts by itself as the reads land:',
-      missing.map(doc => `  - ${doc.display}`).join('\n'),
+      docLines(missing, partial, doc => doc.display),
       ...pointer,
       '',
       'Why this gate exists: the shared config is the single source of truth for coding standards and the git workflow, and a change made without it is a change made against it. An audit of the recorded sessions found only about a tenth had read any of these files, so a hint was not enough.',
       'Read them even if the task looks routine.',
+      ...gateAdvice(repeats),
     ].join('\n'),
   }
+}
+
+/** Calls denied this many times unchanged get the stop-and-ask advice. */
+export const REPEAT_LIMIT = 3
+
+/**
+ * One line per missing doc, marking the ones read only in part.
+ *
+ * @param missing - the docs still unread.
+ * @param partial - ids of docs this session read a slice of.
+ * @param show - how a doc is named in the list.
+ * @returns the joined lines.
+ */
+export function docLines(missing, partial, show) {
+  return missing
+    .map(doc => `  - ${show(doc)}${partial.has(doc.id) ? '  (read in part earlier; a credit needs the whole file, no offset or limit)' : ''}`)
+    .join('\n')
+}
+
+/** The note shown next to a read that covered only part of a gated doc. */
+export function partialReadNote(path) {
+  return `docs-gate: this read of ${path} covered part of it (offset or limit set), so it earned no credit. A gated change needs the whole file read once.`
+}
+
+/**
+ * The closing advice of every denial.
+ *
+ * Agents that meet a block tend to route around it: a measured study found
+ * circumvention in most runs whatever the prohibition said, and only an
+ * instruction to report and stop brought it to zero
+ * (https://lesswrong.com/posts/GHrqBKr8GLpbce6mN/door-s-locked-try-the-window,
+ * retrieved 2026-11-23). So the advice names that exit, and after repeated
+ * identical denials it names nothing else.
+ *
+ * @param repeats - how many times this exact call has been denied.
+ * @param exit - the way out this denial names.
+ * @returns the advice lines.
+ */
+export function gateAdvice(repeats, exit = 'If one of these files cannot be read, tell the user what failed and stop. Do not make the change another way, through another tool, a shell redirect or an interpreter: those are gated too.') {
+  const lines = [exit]
+  if (repeats >= REPEAT_LIMIT) {
+    lines.unshift('', `This exact call has been denied ${repeats} times. Repeating it unchanged will not lift the gate: read the files above, or stop and ask the user.`)
+  }
+  return lines
 }
 
 /**
@@ -419,4 +488,17 @@ export function denyUnresolved(exec, kind, detail = '') {
       REQUIRED_DOCS.map(doc => `  - ~/.config/prometheus-ai/${doc.repoPath}`).join('\n'),
     ].join('\n'),
   }
+}
+
+/**
+ * The denial for a change in a git workspace that has no `.ai/project.md`.
+ *
+ * @param exec - the denied call.
+ * @param kind - the mutation kind.
+ * @param boundary - the workspace root.
+ * @param options.repeats - how many times this exact call has been denied.
+ * @returns a `deny` decision.
+ */
+export function denyUninitialized(exec, kind, boundary, { repeats = 1 } = {}) {
+  return { kind: 'deny', reason: [...uninitializedLines(exec.name, kind, boundary), '', ...gateAdvice(repeats, INIT_EXIT)].join('\n') }
 }

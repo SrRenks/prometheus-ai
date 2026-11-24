@@ -81,6 +81,33 @@ export function wantedDoc(docs, absolute) {
 }
 
 /**
+ * Did a read call cover the whole document, or only a slice of it?
+ *
+ * A credit says this exact content was read. A read with `offset` past the
+ * first line, or a `limit` short of the last, saw part of it: recorded sessions
+ * did that in 120 of 1222 doc reads, and every one of them used to earn the
+ * full credit.
+ *
+ * @param args - the read call's arguments, as an object or a JSON string.
+ * @param content - the document's content now.
+ * @returns true when the whole document was in range.
+ */
+export function coversWhole(args, content) {
+  let parsed = args
+  if (typeof args === 'string') {
+    try {
+      parsed = JSON.parse(args)
+    } catch {
+      return true
+    }
+  }
+  const offset = Number(parsed?.offset ?? 0)
+  const limit = parsed?.limit === undefined || parsed?.limit === null ? Infinity : Number(parsed.limit)
+  const lines = String(content).replace(/\n$/, '').split('\n').length
+  return !(offset > 1) && !(limit < lines)
+}
+
+/**
  * A stable fingerprint of document content.
  *
  * Content, not mtime: a checkout operation, a rebase, or a rewrite that leaves

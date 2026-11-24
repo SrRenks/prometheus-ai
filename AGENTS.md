@@ -4,7 +4,7 @@
 - This configuration is the single source of truth for agent behavior. It is READ-ONLY for agents: never create, edit, or delete anything under `~/.config/prometheus-ai/` unless the human explicitly orders it. When the human does order a change, follow `~/.config/prometheus-ai/core/docs/prometheus-ai-authoring.md` (or load the extend-config skill).
 - A project's agent configuration lives in its `.ai/` directory. `.ai/agents.md` is a symlink to this file - shared, identical in every project, updated automatically when this config changes. `.ai/project.md` holds project-specific rules. The `.ai/` structure is defined in `~/.config/prometheus-ai/core/docs/ai-directory.md`.
 - Custom, project-specific instructions belong only in `.ai/project.md` and `.ai/docs/`. Never adapt shared rules to fit one project - override in the project instead.
-- Injection varies by tool. Some auto-inject this file; the dsh preset injects nothing and enforces instead (rule 7). Never assume this file is in context - if unsure, read it.
+- Injection varies by tool. Some auto-inject this file; the dsh preset and Claude Code token mode inject at most a pointer and enforce instead (rule 7). Never assume this file is in context - if unsure, read it.
 
 ## Section 0: Non-negotiables
 1. No flattery. Never say "Great question," "Good catch," or similar. Be direct.
@@ -13,15 +13,15 @@
 4. Never fabricate. If you don't know, say so. Don't guess and sound certain.
 5. Stop when confused. Ask. Don't barrel ahead with wrong assumptions.
 6. Touch only what's requested. No drive-by refactoring. No cleanups outside scope.
-7. Do not edit, write, or run a mutating command before reading the tier's behavioural rules. The dsh `docs-gate` plugin names the files, and the list is in Section 3.
+7. Do not edit, write, or run a mutating command before reading the tier's behavioural rules. `docs-gate` (dsh and Claude Code) names the files; the list is in Section 3.
 8. Formatting by audience: agent-facing files (this config, `.ai/`) are AI-only - headers and bullets, no bold, no tables, no decorative markdown. Committed project docs (`README.md`, `docs/`) are written for humans - full markdown, and the skeletons under `core/templates/` mirror that human format, tables and bold included.
 9. AI-writing hygiene applies only to prose written into files for humans (README, docs, code comments, commit messages): follow `~/.config/prometheus-ai/core/docs/ai-writing.md`. Chat replies and `.ai/` files are exempt.
 
 ## Section 1: Project entry
 1. On first action in a workspace, classify the project:
    - NEW - empty, scaffold-only, no build history. Propose `ai-init`, fill `.ai/project.md` and project context, then plan the build-out.
-   - EXISTING - has source, build files, or commit history. Onboard like a new employee before any change: survey `docs/repository-map.md` and `.ai/context/index.md`, review git history, then ask targeted questions about anything unclear - business rules, database, conventions, hidden context. Follow the full procedure in `~/.config/prometheus-ai/core/docs/onboarding.md`. Never re-create, restructure, or "improve" what already works.
-2. At session start in an initialized project, read `.ai/project.md` and `.ai/session.md` before acting. In an EXISTING project, check git state first: current branch, uncommitted changes, recent commits; never make changes on `main` or a protected branch, and never create or switch branches, without the human's approval. Most tools do not inject `.ai/` files; this instruction is the only mechanism that loads them.
+   - EXISTING - has source, build files, or commit history. Before the first change: `ai-init` if `.ai/project.md` is missing (with approval; `docs-gate` enforces it), read what the task touches, then ask targeted questions about what the code cannot show - business rules, database, conventions, hidden context. Procedure: `~/.config/prometheus-ai/core/docs/onboarding.md`. Never re-create, restructure, or "improve" what already works.
+2. At session start in an initialized project, read `.ai/project.md`, `.ai/overlay.md` and `.ai/session.md` before acting. In an EXISTING project, check git state first: current branch, uncommitted changes, recent commits; never make changes on `main` or a protected branch, and never create or switch branches, without the human's approval. Give each task its own worktree (`ai-worktree`); never switch the branch of a checkout your task did not create. Most tools do not inject `.ai/` files; this instruction is the only mechanism that loads them.
 3. Read state before acting: `.ai/assumptions.md` (decision log), `.ai/scratchpad.md` (working notes), `.ai/context/index.md` (project knowledge base).
 4. Capture project knowledge as it is confirmed - from the user's words or your exploration - into the matching file: `.ai/context/domain.md` (purpose, business rules, glossary), `.ai/context/architecture.md` (modules, data flow), `.ai/context/database.md` (schema, storage), `.ai/context/dependencies.md` (external services), `.ai/context/conventions.md` (local rules), `.ai/project.md` (stack, build/test, conventions), `.ai/assumptions.md` (decisions). Replace the open questions in the topic files with the confirmed facts. Never put facts in `.ai/context/index.md` - it is machine-owned.
 5. Consult `.ai/context/` and `.ai/docs/` for project-specific knowledge and the repository's `docs/` for technical documentation.
@@ -74,7 +74,7 @@ Read on demand; never copy them into projects. Paths below are relative to `~/.c
 - Dependencies: `core/docs/dependency-policy.md`
 
 ## Section 4: Memory files (`.ai/`, local-only, never committed)
-- `.ai/agents.md` (symlink to this file; do not edit), `.ai/project.md` (project rules), `.ai/session.md` (session state), `.ai/assumptions.md` (decisions), `.ai/scratchpad.md` (notes), `.ai/docs/`, `.ai/context/`, `.ai/evals/`. Structure: `core/docs/ai-directory.md`.
+- `.ai/agents.md` (symlink to this file; do not edit), `.ai/project.md` (project rules), `.ai/overlay.md` (company or personal rules; project rules override it), `.ai/session.md` (session state), `.ai/assumptions.md` (decisions), `.ai/scratchpad.md` (notes), `.ai/docs/`, `.ai/context/`, `.ai/evals/`. Structure: `core/docs/ai-directory.md`.
 - Never commit `.ai/`; it is per-project knowledge, not project content.
 
 ## Section 5: No-Go
@@ -86,4 +86,4 @@ Read on demand; never copy them into projects. Paths below are relative to `~/.c
 ## Section 6: Tool usage
 - Prefer dedicated search/read tools over shell commands for file access: in-project text search, file discovery, reading files, and diff review all have dedicated tools; use the shell only when no dedicated tool exists.
 - Search once, search well: one precise query beats repeated similar ones; read only the line ranges needed.
-- Web search is a last resort, not a first move: consult local sources first (this config's `docs/`, `.ai/context/`, `.ai/docs/`, the repo's `docs/`, and files already read). Use it only for what local sources cannot answer: current versions/changelogs of external dependencies, upstream breaking changes, official API docs, and errors that require external knowledge. Cite the source and retrieval date for any fact taken from the web.
+- Web search is a last resort: consult local sources first (this config, `.ai/`, the repo's `docs/`, files already read). Use it for what they cannot answer, such as current dependency versions, upstream changes and official API docs. Cite the source and retrieval date.

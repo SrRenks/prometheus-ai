@@ -12,6 +12,7 @@ This is the contract that `ai-init` and the SessionStart hook implement.
 .ai/
 ├── agents.md       # SYMLINK → ~/.config/prometheus-ai/AGENTS.md (shared, read-only)
 ├── project.md      # Project-specific rules: stack, build/test/lint, conventions
+├── overlay.md      # SYMLINK → the company or personal overlay chosen by ai-init --overlay
 ├── session.md      # Current session state (updated at session end)
 ├── assumptions.md  # Decision log - one numbered entry per decision
 ├── scratchpad.md   # Working notes, commands, investigation results
@@ -22,6 +23,7 @@ This is the contract that `ai-init` and the SessionStart hook implement.
 │   ├── database.md     # schema/storage - ONLY when a database is detected
 │   ├── dependencies.md # external services/APIs - ONLY when present
 │   └── conventions.md  # local conventions - ONLY when detected
+├── audits/         # optional: quality-audit reports, one dated file per run
 └── docs/           # optional, created on demand
 ```
 
@@ -37,12 +39,15 @@ context/ holds the project knowledge base: internal context future agents need (
 5. `README.md` is generated on demand by `ai-context` too (project-docs standard) with only the sections that apply - never copied from a template.
 
 ## Rules
-1. Top-level files are fixed: `agents.md` (symlink), `project.md`, `session.md`, `assumptions.md`, `scratchpad.md`. `context/`, `docs/`, and `evals/` (retained eval runs, see `~/.config/prometheus-ai/core/docs/evals.md`) are optional, created on demand. Do not add other top-level files without updating this standard.
+1. Top-level files are fixed: `agents.md` (symlink), `overlay.md` (symlink), `project.md`, `session.md`, `assumptions.md`, `scratchpad.md`. `context/`, `docs/`, `audits/`, and `evals/` (retained eval runs, see `~/.config/prometheus-ai/core/docs/evals.md`) are optional, created on demand. Do not add other top-level files without updating this standard.
 2. `docs/` files: one topic per file, lowercase kebab-case names (`git-workflow.md`, `testing.md`). Written as imperative rules - no fill-in placeholders.
 3. Content style: direct, imperative orders. Never write "context {describe here}" templates - write actual rules.
 4. `agents.md` is a symlink to `~/.config/prometheus-ai/AGENTS.md` - never edit it (the shared config is READ-ONLY). Project rules live in `project.md`: imperative, placeholder-free directives, build/test/lint commands first.
 5. `.ai/` is created by `ai-init`. Keep it current with this standard.
-6. Never commit `.ai/` - the `.gitignore` entry is part of the setup.
+6. Never commit `.ai/` - `ai-init` ignores it in `.git/info/exclude`, which is local to the clone, so a team repository's `.gitignore` is not edited. What the whole team should share goes in a short committed `./AGENTS.md` (`ai-init --team`): commands and conventions the code does not show.
+
+7. Precedence: the shared config, then `overlay.md`, then `project.md` and `docs/`; the later one wins where they disagree. The shipped overlay is `core/overlays/default.md`; a user's own overlays live outside this repository in `~/.config/prometheus-ai.local/overlays/` (or `$PROMETHEUS_AI_LOCAL`) and are never committed.
+8. Worktrees: `ai-worktree new` gives each task a worktree under `<main>/.worktrees/`. Its `.ai/` links `agents.md`, `overlay.md`, `project.md`, `assumptions.md`, `context/`, `docs/` and `evals/` to the main checkout, so the knowledge is shared, and holds its own `session.md` and `scratchpad.md`, so the task notes are not. `ai-init` run inside a linked worktree sets up the main checkout, and `docs-gate` reads the main checkout's `project.md` from a worktree that has none.
 
 ## When to add a `.ai/docs/` file
 - When a project-specific convention must be documented (git workflow, stack rules, processes).

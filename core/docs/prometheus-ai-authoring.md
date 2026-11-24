@@ -52,6 +52,7 @@ Templates:
 5. New rule: nothing else needed (auto-loaded by Claude Code and Cursor).
 6. Preset changes: follow the agents/dsh/presets/renks/README.md patch flow; run the retained eval set (core/docs/evals.md) before changing defaults.
 7. Commit: conventional message, plain wording, explicit files only, never git add -A. Wait for human approval before committing (AGENTS.md section 1 rule 8).
+   - This repository is a single-owner config with no reviewers and no CI, so it is the one standing exception to git-workflow.md's PR and CI rules: approved commits land on `main` directly, the owner pushes, and the local checks under Validation below stand in for CI. The rest of git-workflow.md applies. The exception lives here, not in git-workflow.md, because shared rules are not adapted to one project.
 8. New behavioral rule or numeric threshold: add its entry to core/docs/sources.md in the same commit, naming the source, the URL or DOI, the retrieval date, and the claim it justifies. With no citable source, label the claim repo design or community practice. A file that ends without a Sources line gets one.
 
 ## Validation before finishing
@@ -63,7 +64,7 @@ Templates:
 - Frontmatter sweep: python3 -c "import yaml,pathlib; [yaml.safe_load(p.read_text()[3:p.read_text().find('\n---',3)]) for p in pathlib.Path('.').rglob('*.md') if p.read_text().startswith('---')]" returns without raising.
 - Symlinks: find . -type l ! -exec test -e {} \; -print must return nothing.
 - Hooks: the tool names a hook compares must match its matcher in agents/claude-code/settings.json. A mismatch in case makes the hook exit without doing anything, which stays invisible until someone traces it. Feed the hook a payload carrying the real tool name and confirm it reaches its work.
-- Injection budget: python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/CLAUDE.md')))" stays at or below 2500. tiktoken is not a repo dependency; any BPE encoder reads the same files within a few tokens.
+- Injection budget: python3 -c "import tiktoken,pathlib; e=tiktoken.get_encoding('o200k_base'); print(sum(len(e.encode(pathlib.Path(p).read_text())) for p in ('AGENTS.md','agents/claude-code/claude-code.md')))" stays at or below 2500. That is the subscription-mode injection; CLAUDE.md only imports those two files, and token mode drops AGENTS.md. tiktoken is not a repo dependency; any BPE encoder reads the same files within a few tokens.
 - Human-facing prose: scan against core/docs/ai-writing.md and fix the tells.
 - Provenance: every numeric threshold in the changed files has an entry in core/docs/sources.md; check with grep -rnE '[<>≤≥] ?[0-9]+' core/docs/*.md.
 

@@ -33,7 +33,7 @@ result is stable or better - and never because of a public-benchmark number.
   skill catalog) per request. Target: instructions ≤ ~2.5K tokens, skill
   catalog ≤ 1% of the context window or on-demand search/load instead.
   Measured 2026-09-16 with tiktoken: 2460 tokens on the Claude Code path
-  (AGENTS.md 2283 plus the 177-token agents/claude-code/CLAUDE.md layer on
+  (AGENTS.md 2283 plus the 177-token Claude Code layer, now agents/claude-code/claude-code.md, on
   o200k_base; cl100k_base reads 2470). Recomputed 2026-10-02 at about 2452 by
   scaling AGENTS.md's character count against that same 2283-token measurement,
   because no tokenizer was installed to re-measure directly. AGENTS.md is 9579
@@ -42,7 +42,14 @@ result is stable or better - and never because of a public-benchmark number.
   commit-time prose rules in the gated set, and lost more than it gained. Slack
   is roughly 48 tokens. Treat the figure as an estimate and re-measure with a
   real tokenizer before relying on it, and remember the rule either way: anything
-  added to AGENTS.md comes out of something else first. The skill catalog is not
+  added to AGENTS.md comes out of something else first. Re-measured 2026-11-23
+  with tiktoken: 2485 tokens on o200k_base (2494 on cl100k_base) for the
+  subscription path, AGENTS.md 2289 plus `agents/claude-code/claude-code.md` 165
+  plus the two import lines of CLAUDE.md 31, so 15 tokens of slack; the token-mode
+  path, CLAUDE.token.md plus claude-code.md, carries 293. Re-measured 2026-11-24
+  after the worktree rule and `.ai/overlay.md` were added and the web-search
+  bullet was cut to pay for them: AGENTS.md 2302, total 2498 on o200k_base, so
+  2 tokens of slack; the next addition must remove more than it adds. The skill catalog is not
   injected at all under the renks preset.
 
 ### B. task set (run for substantive changes)
@@ -63,7 +70,9 @@ claim, and this repo has spent enough time on claims that could not be checked.
 
 | Measure | Value | Reproduce with |
 |---|---|---|
-| Standing injection (AGENTS.md + CLAUDE.md) | ~2 452 tokens of 2 500 | see anchor A above |
+| Standing injection, subscription mode (AGENTS.md + claude-code.md + CLAUDE.md) | 2 485 tokens of 2 500 | see anchor A above |
+| Standing injection, token mode (CLAUDE.token.md + claude-code.md) | 293 tokens | the same |
+| Recorded gate denials still denied | 61 of 241 `bash` calls | `node tools/replay-gate-denials.mjs` |
 | Gate cost, prose change | 1 doc, 776 tokens | `node tools/verify-docs-gate.mjs` |
 | Gate cost, source change | 4 docs, 2 945 tokens | the same |
 | Gate cost, commit | 3 docs, 2 844 tokens | the same |

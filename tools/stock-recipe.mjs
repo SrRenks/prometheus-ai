@@ -21,7 +21,7 @@
  * back out. Those two are inverses and must stay that way: same ten spaces, same
  * treatment of blank lines.
  */
-import { existsSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 
@@ -64,6 +64,12 @@ function entryFromShim(launcher) {
 /**
  * Where the running `dsh` keeps its packages, derived from the launcher.
  *
+ * The launcher usually points THROUGH a package manager's link farm: pnpm keeps
+ * the real package in a store tree and links it from the global tree. Walking up
+ * from the link's literal path never enters the store, so the shipped preset
+ * module beside it is invisible; walking from the resolved path finds it, and
+ * still finds a `.pnpm` tree on an install that links within one directory.
+ *
  * @param whichDsh - the launcher path, usually from `command -v dsh`.
  * @returns the directory to resolve the shipped preset module from, or undefined.
  */
@@ -71,7 +77,7 @@ export function dshInstallDir(whichDsh) {
   if (whichDsh === undefined || whichDsh.length === 0) return undefined
   const entry = entryFromShim(whichDsh)
   if (entry === undefined || !existsSync(entry)) return undefined
-  return dirname(entry)
+  return dirname(realpathSync(entry))
 }
 
 /**
