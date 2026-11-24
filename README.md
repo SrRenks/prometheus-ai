@@ -405,7 +405,9 @@ better.
 `docs-gate.mjs` observes `tools/pre-execute` - the waterfall `dsh-tools` runs
 before every tool body - and denies a mutating call until the session has read
 what that call's tier requires. The denial reaches the model as the tool result,
-so the corrective instruction arrives exactly where the model is looking.
+so the corrective instruction arrives exactly where the model is looking. It
+also observes `tools/post-execute`, only to note next to a read result that the
+read covered part of a gated doc.
 
 The set is tiered, because demanding a complexity budget before a README edit is
 friction with no return:
@@ -447,7 +449,11 @@ than no gate:
   and says so.
 - It never re-gates: once the set is read, the check is one `Set` lookup.
 - A subagent inherits its root session's evidence instead of re-reading five
-  files, and an unresolvable workspace fails closed rather than silently
+  files. Claude Code does name the subagent in hook input (`agent_id`), so
+  per-agent credits are possible; they are not used because the shared rules
+  keep subagents to exploration and review, which the gate leaves open, and
+  re-reading would cost every delegated writer the whole tier. An unresolvable
+  workspace fails closed rather than silently
   disabling the gate.
 
 `docs-gate.spec.mjs` and `docs-gate-tiers.spec.mjs` are the test suites, and
@@ -624,8 +630,9 @@ Claude Code gets three hooks, wired in `agents/claude-code/settings.json`:
   process the gate cannot read.
 
   Three things keep a denial from turning into a loop. A Read with `offset` or
-  `limit` that misses part of a doc is not a credit, and Claude is told so next
-  to the tool result. Every denial ends by naming the exit, tell the user and
+  `limit` that misses part of a doc is not a credit, and the agent is told so
+  next to the tool result, in dsh and in Claude Code. Every denial ends by
+  naming the exit, tell the user and
   stop, and says writing another way is gated too; that wording comes from a
   measured study in which only "report and stop" brought circumvention to zero
   (`core/docs/sources.md`). The third identical denial of a call says that
@@ -660,6 +667,30 @@ fetches. Denied outright: `git push`, every `rm`, `git add -A`, `sudo`,
 is written `Bash(git diff:*)`. The file used `Bash(git:diff*)` until 2026-11,
 which names a command starting with `git:diff`, so those rules matched nothing;
 `tools/test-hooks.mjs` now rejects that spelling.
+
+`~/.claude/settings.json` is a link to this file, and Claude Code writes user
+settings such as the theme into it, so a `/config` change shows up in
+`git status` here. That is the usual cost of a linked dotfile. Commit the
+change if it should follow you to other machines, or `git restore` it if not.
+There is no user-level `settings.local.json` to move it into (Claude Code
+settings docs, retrieved 2026-11-24).
+
+The Bash sandbox is left off here, because this file applies to every project.
+docs-gate and `block-danger` are tripwires; the sandbox is the hard boundary,
+enforced by the OS, and by default it limits Bash writes to the working
+directory. Turn it on per project, in that project's `.claude/settings.json`:
+
+```json
+{
+  "sandbox": { "enabled": true, "allowUnsandboxedCommands": false },
+  "permissions": { "blockWritesOutsideWorkingDirectories": true }
+}
+```
+
+`allowUnsandboxedCommands: false` removes the retry outside the sandbox, and
+`blockWritesOutsideWorkingDirectories` (Claude Code 2.1.314+) gives the Write
+and Edit tools the same limit, since the sandbox covers Bash only. Commands
+that need more, such as `docker`, go in `sandbox.excludedCommands`.
 
 The shared rules carry the git-add ban for every tool. The destructive-command
 list lives only in the Claude Code hook and its settings, so other tools do not
