@@ -857,7 +857,7 @@ inherit it.
 | `worktrees` | gives each task its own worktree with `ai-worktree`, so parallel tasks never share a checkout, then lands and cleans up the branch |
 | `dispatch` | splits independent work across parallel subagents and verifies each result before merging it |
 | `extend-config` | creates or updates files in this repo following the authoring spec |
-| `pentest` | runs an authorized offensive engagement behind the anonymity gate: scope, opsec, recon, exploitation, escalation, cleanup, report |
+| `pentest` | runs an offensive engagement the operator asked for, behind the anonymity gate: scope, opsec, recon, exploitation, escalation, cleanup, report |
 
 ## Reference docs
 
