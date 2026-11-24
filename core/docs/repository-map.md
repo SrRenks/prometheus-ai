@@ -10,6 +10,10 @@ This config is READ-ONLY for agents. Projects do not copy it: `ai-init` creates 
 - `setup.sh` - one-time global install: every tool bridge (symlinks), the `~/.local/bin` commands, and the git identity include.
 - `ai-init` - creates the project's `.ai/` directory (agents.md symlink, project.md, memory files, docs/) and ignores it in `.git/info/exclude`; `--team` writes a committed `./AGENTS.md` from `core/templates/team-agents.md`, `--link-agents` links one for Cursor. → `~/.local/bin/ai-init`.
 - `ai-context` - generates `.ai/context/` topic files and the project README on demand. → `~/.local/bin/ai-context`.
+- `ai-survey` - prints a read-only, agent-facing markdown report of computed project facts (git state, worktrees, file counts, markers, churn, `--siblings` repos without remote URLs) for onboarding; code in `tools/ai-survey.mjs`. → `~/.local/bin/ai-survey`.
+- `ai-lint` - lints `.ai/**/*.md` for tables, bold, unfilled placeholders, stale `path:line` citations and dangling symlinks (long files warn); exits 1 on any error; code in `tools/ai-lint.mjs`. → `~/.local/bin/ai-lint`.
+- `ai-worktree` - one locked git worktree and branch per task under `<main>/.worktrees/`, sharing the main checkout's `.ai/` knowledge and keeping its own session notes (`new`, `list`, `remove`). → `~/.local/bin/ai-worktree`.
+- `core/overlays/default.md` - the shipped overlay: company or personal rules between the shared config and the project, linked as `.ai/overlay.md` by `ai-init --overlay`; user overlays live in `~/.config/agent-config.local/overlays/`.
 - `core/` - tool-free content: `core/docs/` (reference library), `core/principles.md`, `core/templates/`.
 - `agents/` - per-tool adapters: `claude-code/` (CLAUDE.md, CLAUDE.token.md, claude-code.md, CLAUDE.local.md, settings.json, hooks, rules, commands, claudeignore), `gemini/`, `dsh/`.
 - `tools/` - repo-maintenance scripts. `build-preset-recipe.mjs` regenerates the dsh preset's baseline, patch and fallback from the installed stock recipe, and `--check` reports drift.

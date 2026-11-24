@@ -214,18 +214,24 @@ ai-init      # creates .ai/ and ignores it in .git/info/exclude (local, never co
 ai-init --team         # also writes a short ./AGENTS.md for the team to commit
 ai-init --link-agents  # links ./AGENTS.md to the shared rules, for Cursor only
 ai-context   # writes context topic files and the project README, once the project has content
+ai-init --overlay acme # links .ai/overlay.md to your overlay named acme
+ai-survey    # prints computed facts: git state, stack markers, churn; --siblings ~/Projects for neighbours
+ai-lint      # checks .ai/: citations that no longer resolve, tables, bold, placeholders
+ai-worktree new login-fix --type fix   # a locked worktree and branch for one task
 ```
 
 | Path | Role | Ownership |
 |---|---|---|
 | `.ai/agents.md` | symlink to this config's `AGENTS.md` | shared, never edited |
 | `.ai/project.md` | stack, build/test/lint commands, local conventions | project |
+| `.ai/overlay.md` | symlink to a company or personal overlay | your overlay, or the shipped default |
 | `.ai/session.md` | current session state, written at the end of a task | project |
 | `.ai/assumptions.md` | decision log, one numbered entry per decision | project |
 | `.ai/scratchpad.md` | working notes, commands, investigation results | project |
 | `.ai/context/index.md` | maturity, stack, pointers, open gaps | machine, refreshed on every `ai-context` run |
 | `.ai/context/<topic>.md` | domain, architecture, database, dependencies, conventions | created once, then never overwritten |
 | `.ai/docs/` | project-specific convention docs, created on demand | project |
+| `.ai/audits/` | `quality-audit` reports, one dated file per run | project |
 | `.ai/evals/` | retained eval runs, optional | project, see `core/docs/evals.md` |
 
 How it behaves:
@@ -281,16 +287,79 @@ How it behaves:
 `core/docs/ai-directory.md` is the full standard, including when a `.ai/docs/`
 file is worth creating instead of a line in `project.md`.
 
+### Overlays: company and personal rules
+
+Rules that hold for every repository of one company, or for one person's style,
+sit in an overlay between the shared rules and the project: the reply and doc
+language, the branch model, how tickets are named, the environments, which acts
+need separate approvals. `.ai/project.md` still wins over the overlay.
+
+The shipped `core/overlays/default.md` changes nothing and explains each section;
+every section is optional, so an overlay can set only the branch model and leave
+ticket numbers out. Your own overlays live outside this repository, in
+`~/.config/agent-config.local/overlays/<name>.md` (or `$AGENT_CONFIG_LOCAL`), so
+company process never lands in a public config. `ai-init --overlay <name>` links
+one into a project; name yours `default.md` and every new project gets it.
+
+### Existing projects: audit, quality audit, task kickoff
+
+Three skills cover the work that used to be long pasted prompts:
+
+| Skill | What it does | What it writes |
+|---|---|---|
+| `audit` | First audit of an existing project and the repositories it talks to. Starts from `ai-survey`, explores by the questions the work needs, records each fact with `path:line` evidence and a confidence, keeps conflicts and one-sided cross-repo relations as open questions. Re-run it to refresh facts whose cited files changed. | `.ai/context/` topic files |
+| `quality-audit` | Tools first (linters, tests, complexity, dependency audit, semgrep when installed), then model findings with a severity, `path:line` and a failure scenario, each challenged by a fresh-context refutation pass. | `.ai/audits/<date>-quality.md` |
+| `kickoff` | Reads an issue, interviews you until the task has testable acceptance criteria and non-goals, creates the task's worktree and branch from the overlay's rules, then plans and stops. | the worktree's `.ai/session.md` |
+
+They differ from the earlier prompts on purpose. Those asked for 100% file
+coverage, repeated scoring loops and self-graded 100/100 scores. A study of
+repository context files found that pushing agents into more exploration cost
+about a fifth more without raising success (arXiv:2602.11988), LLM reviewers
+over-report on correct code, and a score a model gives its own audit cannot be
+checked from outside. So the computable parts became commands (`ai-survey`,
+`ai-lint`), the audit is scoped by questions, and every finding carries evidence
+a person or a script can check. `core/docs/sources.md` has the studies.
+
+### Several tasks in one repository
+
+Two agents in one checkout share its HEAD and its index: one `git switch` moves
+the files under the other, their staging collides, and each ends up waiting for
+the other. The rule is one worktree per task, and never switching the branch of
+a checkout your task did not create.
+
+```bash
+ai-worktree new login-fix --type fix   # .worktrees/login-fix on fix/login-fix, locked
+ai-worktree list                       # every task, its branch, and whether it is taken
+ai-worktree remove login-fix --delete-branch   # refuses uncommitted work
+```
+
+`.worktrees/` sits in the main checkout and is ignored through
+`.git/info/exclude`; the name belongs to no vendor, and worktrees made by other
+tools still show up in `ai-worktree list`. Each worktree shares the project's
+`.ai/` knowledge through links to the main checkout and keeps its own
+`session.md` and `scratchpad.md`. Gitignored files it needs, such as `.env`, go
+in `.worktreeinclude`, in gitignore syntax; git does the matching, so only
+files it ignores are copied and nothing outside the repository can be named.
+The lock marks the task as taken until `remove`; it cannot tell a running task
+from a finished one. Dependencies, ports and database names are per worktree,
+and the tool installs nothing: the `worktrees` skill tells the agent to set them
+up. `ai-init` inside a worktree sets up the main checkout, and `docs-gate` in
+both dsh and Claude Code reads the main checkout's `.ai/project.md` from a
+worktree.
+
 ## Repository layout
 
 ```
 AGENTS.md              universal rules, no tool-specific content
 setup.sh               installs every tool bridge on this machine
 ai-init, ai-context    per-project tooling (linked into ~/.local/bin)
+ai-survey, ai-lint     computed project facts, and the .ai/ checker
+ai-worktree            one worktree per task
 core/
   docs/                reference library, read on demand
   principles.md        universal agent principles
   templates/           .ai/ and project-docs skeletons
+  overlays/            the shipped default overlay (yours live in ~/.config/agent-config.local)
 agents/
   claude-code/         CLAUDE.md, CLAUDE.token.md, claude-code.md, settings.json, hooks/, rules/, commands/
   gemini/              GEMINI.md
@@ -702,12 +771,15 @@ inherit it.
 |---|---|
 | `plan` | surveys the repo and writes a numbered implementation plan with success criteria |
 | `onboard` | reads an existing codebase like a new engineer, then asks about what is still unclear |
+| `audit` | first audit of an existing project and its related repos, every fact with evidence, then open questions |
+| `quality-audit` | tools first, then ranked findings with a failure scenario, each challenged by a refutation pass |
+| `kickoff` | turns an issue into a specified task in its own worktree, then plans and stops |
 | `context` | files knowledge from the conversation into the right `.ai/` files |
 | `review` | reviews the pending diff, unpushed commits, linters, and tests |
 | `ship` | prepares a commit: verifies the staged diff, writes the message, runs the pre-commit checks |
 | `ci` | runs lint, test, build, and security scan locally, then reports pass or fail |
 | `debug` | works a bug down systematically: reproduce, isolate, verify assumptions, fix the cause, keep the regression test |
-| `worktrees` | does the work in a git worktree so the main checkout stays untouched, then lands and cleans up the branch |
+| `worktrees` | gives each task its own worktree with `ai-worktree`, so parallel tasks never share a checkout, then lands and cleans up the branch |
 | `dispatch` | splits independent work across parallel subagents and verifies each result before merging it |
 | `extend-config` | creates or updates files in this repo following the authoring spec |
 
@@ -771,7 +843,7 @@ covers the resolution order.
 Run before finishing any change to this config:
 
 ```bash
-for f in setup.sh ai-init ai-context agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
+for f in setup.sh ai-init ai-context ai-worktree agents/dsh/install.sh; do bash -n "$f"; done  # shell syntax
 for f in agents/dsh/presets/renks/*.mjs; do node --check "$f"; done                # plugin syntax
 node --test 'agents/dsh/presets/renks/*.spec.mjs'                                  # gate behaviour and tiers
 node --test 'tools/*.spec.mjs'                                                     # stock resolver, helper parsers, Claude docs-gate, audit, setup modes

@@ -46,7 +46,10 @@ result is stable or better - and never because of a public-benchmark number.
   with tiktoken: 2485 tokens on o200k_base (2494 on cl100k_base) for the
   subscription path, AGENTS.md 2289 plus `agents/claude-code/claude-code.md` 165
   plus the two import lines of CLAUDE.md 31, so 15 tokens of slack; the token-mode
-  path, CLAUDE.token.md plus claude-code.md, carries 293. The skill catalog is not
+  path, CLAUDE.token.md plus claude-code.md, carries 293. Re-measured 2026-11-24
+  after the worktree rule and `.ai/overlay.md` were added and the web-search
+  bullet was cut to pay for them: AGENTS.md 2302, total 2498 on o200k_base, so
+  2 tokens of slack; the next addition must remove more than it adds. The skill catalog is not
   injected at all under the renks preset.
 
 ### B. task set (run for substantive changes)

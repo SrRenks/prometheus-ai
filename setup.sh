@@ -114,12 +114,12 @@ else
     echo "  wired: ~/.gitconfig includes $IDENT for ~/Projects/** and ~/.config/**"
 fi
 
-# ── ai-init / ai-context commands ────────────────────────────────────────────
+# ── per-project commands ─────────────────────────────────────────────────────
 mkdir -p "$HOME/.local/bin"
-ln -sfn "$SRC/ai-init" "$HOME/.local/bin/ai-init"
-ln -sfn "$SRC/ai-context" "$HOME/.local/bin/ai-context"
-echo "  linked: ~/.local/bin/ai-init -> $SRC/ai-init"
-echo "  linked: ~/.local/bin/ai-context -> $SRC/ai-context"
+for cmd in ai-init ai-context ai-survey ai-lint ai-worktree; do
+    ln -sfn "$SRC/$cmd" "$HOME/.local/bin/$cmd"
+    echo "  linked: ~/.local/bin/$cmd -> $SRC/$cmd"
+done
 
 echo ""
 echo "Done. Installed:"
@@ -129,7 +129,7 @@ echo "  Codex       : ~/.codex/AGENTS.md"
 echo "  Gemini CLI  : ~/.gemini/GEMINI.md"
 echo "  Cursor      : ~/.cursor/rules"
 echo "  Generic     : ~/.agents/AGENTS.md"
-echo "  Commands    : ~/.local/bin/ai-init, ai-context"
+echo "  Commands    : ~/.local/bin/ai-init, ai-context, ai-survey, ai-lint, ai-worktree"
 echo "  Git identity : ~/.config/git/identity (conditional include from ~/.gitconfig)"
 echo ""
 echo "dsh (DeepSeek Harness) is installed separately:"
