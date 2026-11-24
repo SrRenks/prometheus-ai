@@ -322,6 +322,16 @@ checked from outside. So the computable parts became commands (`ai-survey`,
 carries evidence a person or a script can check. `core/docs/sources.md` has the
 studies.
 
+Measured here on a client repository (Sonnet, 10 questions provable from the code, graded
+blind): a fresh agent answering from an audit's `.ai/` pack scored 3.0 to 3.5 of
+10, from the old first-audit prompt's packs or from the `audit` skill's alike,
+while an agent that read the code when asked scored 9.25, for about the cost of
+one audit ($0.45 against $0.49 plus $0.15). The skill reached the old prompt's
+score with a third to a half of its tokens. So an audit is not the way to learn
+what the code already shows; its use is the knowledge the code cannot show,
+which only you can answer, and that part was not measured. Full numbers are in
+`core/docs/sources.md`.
+
 Each step below rests on a benchmarked study, with its strength stated:
 
 | Step | What was measured | Strength |
