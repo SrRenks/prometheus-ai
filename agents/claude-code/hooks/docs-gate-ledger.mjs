@@ -13,9 +13,35 @@
  * process would lose updates; a rename of a whole file cannot.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { fingerprint } from '../../dsh/presets/renks/docs-gate-credit.mjs'
+
+/**
+ * Create `dir` and its missing parents, one plain mkdir per level.
+ *
+ * `mkdirSync(dir, { recursive: true })` never returns when the kernel answers
+ * ENOENT for a parent that exists, as procfs does: it was measured here looping
+ * until killed under `/proc`. A plain mkdir fails at once, so each level either
+ * exists, is created, or throws, and the hook keeps its fail-open path.
+ *
+ * @param dir - the absolute directory to create.
+ * @throws the first error that is not EEXIST.
+ */
+export function ensureDir(dir) {
+  const missing = []
+  for (let current = dir; !existsSync(current); current = dirname(current)) {
+    if (dirname(current) === current) break
+    missing.unshift(current)
+  }
+  for (const level of missing) {
+    try {
+      mkdirSync(level)
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+    }
+  }
+}
 
 /** Session directories untouched for this long are removed at session start. */
 const STALE_MS = 14 * 24 * 60 * 60 * 1000
@@ -67,7 +93,7 @@ export function openLedger(stateDir, session) {
     /** Record a document by an already computed fingerprint. */
     adopt(doc, hash) {
       if (typeof hash !== 'string' || hash.length === 0) return
-      mkdirSync(dir, { recursive: true })
+      ensureDir(dir)
       const tmp = `${fileOf(doc)}.${process.pid}.tmp`
       writeFileSync(tmp, `${hash}\n`)
       renameSync(tmp, fileOf(doc))
@@ -88,7 +114,7 @@ export function openLedger(stateDir, session) {
      */
     reset() {
       rmSync(dir, { recursive: true, force: true })
-      mkdirSync(dir, { recursive: true })
+      ensureDir(dir)
       writeFileSync(join(dir, COMPACTED), '')
     },
     /** Has this session lost its context since it started? */
@@ -111,7 +137,7 @@ export function openLedger(stateDir, session) {
       // fail-open handler: an unwritable state dir must not turn a deny into an
       // allow.
       try {
-        mkdirSync(dir, { recursive: true })
+        ensureDir(dir)
         writeFileSync(file, String(count + 1))
       } catch {
         // The count only steers the denial text.
@@ -124,12 +150,27 @@ export function openLedger(stateDir, session) {
       try {
         if (!partial) rmSync(file, { force: true })
         else {
-          mkdirSync(dir, { recursive: true })
+          ensureDir(dir)
           writeFileSync(file, '')
         }
       } catch {
         // A lost marker only drops the note from the next denial.
       }
+    },
+    /**
+     * True the first time this session sees `key`, then false. Best effort: a
+     * lost marker only repeats a note.
+     */
+    firstTime(key) {
+      const file = join(dir, `${NOTE_PREFIX}${fingerprint(key).slice(0, 32)}`)
+      if (existsSync(file)) return false
+      try {
+        ensureDir(dir)
+        writeFileSync(file, '')
+      } catch {
+        // The note is said again next time.
+      }
+      return true
     },
     /** Ids of the docs this session read only in part. */
     partialIds() {
@@ -145,6 +186,7 @@ export function openLedger(stateDir, session) {
 /** File-name prefixes for the denial counters and the partial-read markers. */
 const DENIAL_PREFIX = '.denied-'
 const PARTIAL_PREFIX = '.partial-'
+const NOTE_PREFIX = '.noted-'
 
 /**
  * Run `fn` while holding a lock beside `path`, across processes.

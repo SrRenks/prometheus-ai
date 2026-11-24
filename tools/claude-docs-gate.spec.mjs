@@ -506,3 +506,58 @@ describe('init check', () => {
     assert.equal(hook(fx, { hook_event_name: 'SessionStart', source: 'startup' }).json, undefined)
   })
 })
+
+describe('flow-router', () => {
+  let fx
+  let repo
+  const gitIn = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 's', GIT_AUTHOR_EMAIL: 's@example.invalid', GIT_COMMITTER_NAME: 's', GIT_COMMITTER_EMAIL: 's@example.invalid' } })
+  beforeEach(() => {
+    fx = fixture()
+    repo = join(fx.base, 'app')
+    mkdirSync(join(repo, '.ai/context'), { recursive: true })
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'x')
+    writeFileSync(join(repo, '.ai/project.md'), '# p\n')
+  })
+  const note = r => r.json?.hookSpecificOutput?.additionalContext ?? ''
+
+  test('session start names the next step from the repository state', () => {
+    assert.match(note(hook(fx, { hook_event_name: 'SessionStart', source: 'startup', cwd: repo })), /no audited facts yet; the audit skill/)
+    writeFileSync(join(repo, '.ai/context/domain.md'), 'Verified at: abc\n')
+    assert.equal(hook(fx, { hook_event_name: 'SessionStart', source: 'startup', cwd: repo }).json, undefined, 'nothing to say')
+  })
+
+  test('a prompt naming a GitHub issue points to kickoff once per session, and never blocks', () => {
+    const ask = prompt => hook(fx, { hook_event_name: 'UserPromptSubmit', prompt, cwd: repo })
+    const first = ask('please start acme/shop#42')
+    assert.equal(first.code, 0)
+    assert.match(note(first), /acme\/shop#42.*kickoff/)
+    assert.equal(first.json?.decision, undefined)
+    assert.equal(ask('again acme/shop#42').json, undefined, 'said once')
+    assert.match(note(ask('now https://github.com/acme/shop/pull/7')), /acme\/shop#7/)
+    assert.equal(ask('fix the typo').json, undefined)
+  })
+
+  test('a branch switch is denied while an ai-worktree task runs, and allowed when none does', () => {
+    const sw = (command, cwd = repo) => hook(fx, { ...pre('Bash', { command }), cwd })
+    assert.doesNotMatch(reason(sw('git switch -c feat/other')) ?? '', /flow-router/, 'no task running: the router lets it through (docs-gate may still ask for the git docs)')
+    gitIn(repo, 'worktree', 'add', '-q', '-b', 'feat/t', join(repo, '.worktrees/t'))
+    gitIn(repo, 'worktree', 'lock', '--reason', 'ai-worktree: task t', join(repo, '.worktrees/t'))
+    const r = sw('git checkout -b feat/other')
+    assert.ok(denied(r))
+    assert.match(reason(r), /tasks are running in other worktrees: t \(feat\/t\).*ai-worktree new/s)
+    assert.ok(denied(sw('git switch main', join(repo, '.worktrees/t'))), 'not inside the task worktree either')
+    assert.doesNotMatch(reason(sw('git checkout -- a.txt')) ?? '', /flow-router/, 'restoring a file is not a switch')
+    assert.ok(!denied(sw('git status')))
+  })
+})
+
+test('an unwritable state dir under procfs cannot hang the hook (recursive mkdir loops there)', { skip: !existsSync('/proc/self') }, () => {
+  const fx = fixture()
+  const start = Date.now()
+  // A denied write records its denial count, which creates the session directory.
+  const r = hook(fx, pre('Write', { file_path: join(fx.ws, 'README.md') }), { DOCS_GATE_STATE_DIR: '/proc/docs-gate-spec/nope' })
+  assert.equal(r.code, 0)
+  assert.ok(denied(r), 'the deny still stands')
+  assert.ok(Date.now() - start < 5000, `took ${Date.now() - start}ms`)
+})
