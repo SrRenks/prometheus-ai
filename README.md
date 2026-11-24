@@ -335,6 +335,46 @@ Each step below rests on a benchmarked study, with its strength stated:
 repositories (precision and recall 1.000). Other languages are matched by
 pattern and checked only by the spec.
 
+### How the flow starts by itself
+
+Agents rarely pick the right skill on their own. In Vercel's eval a skill was
+never invoked in 56% of runs, and an explicit instruction raised triggering to
+over 95%; in a study of four coding agents, the repository's policy file was
+opened in 12 of 347 runs. So both dsh and Claude Code now say the next step at
+the moment it applies, from `flow-router.mjs`:
+
+| When | What the agent is told |
+|---|---|
+| a session starts in a repo with no `.ai/project.md` | ask you to approve `ai-init` (with your overlay), then run `audit` |
+| a session starts in a set-up repo with no audited facts | `audit` builds `.ai/context/` when the work needs it |
+| a session starts while task worktrees are running | which tasks, and that a new task gets `ai-worktree new` |
+| a session starts inside a task worktree | its spec and plan are in `.ai/session.md` |
+| your message names a GitHub issue or PR (`owner/repo#12`, an issues or pull URL) | `kickoff` starts a task from it |
+| your message asks for an audit | `audit` and `quality-audit` |
+
+Each note is one line, said once per session, and never blocks. One thing is
+blocked instead of suggested: `git switch` and `git checkout <branch>` in a
+checkout while an `ai-worktree` task is running, because the same study found
+"do not" rules followed 0 to 10% of the time even with reminders. Restoring a
+file (`git checkout -- a.txt`) is not affected, and with no task running nothing
+changes.
+
+What stays manual is what every vendor keeps manual: approving `ai-init`, the
+plan, each commit and the merge. There is no gate that forces questions. Pushed
+to ask, models asked needless questions on complete tasks at rates of 36 to 93%
+(Ambig-SWE), and mid-task interruptions were dismissed 62% of the time in a
+JetBrains field study, so `kickoff` keeps its one missing-information check at
+the start of a task.
+
+For you at the terminal, `ai status` prints the same state and the next
+command, and `ai init`, `ai task new|list|remove` and `ai survey|lint|skeleton`
+route to the ai-* commands.
+
+To turn the notes and the block off: `DOCS_GATE_DISABLED=1` disables the whole
+Claude Code hook, and `flowRouter: false` in the dsh preset config disables the
+router there. Both fail open: an error in a note or in the switch check lets the
+prompt or the command through.
+
 ### Several tasks in one repository
 
 Two agents in one checkout share its HEAD and its index: one `git switch` moves

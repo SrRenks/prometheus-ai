@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# ai - one entry point for the per-project commands.
+#
+# Usage:
+#   ai status                    where this project stands, and the next step
+#   ai init [ai-init options]    set up .ai/ (ai-init)
+#   ai task new|list|remove ...  one worktree per task (ai-worktree)
+#   ai survey | lint | skeleton | context [args]   the other ai-* commands
+#
+# Every subcommand is the ai-* command of the same job; `ai` only routes, so
+# the ai-* names keep working in scripts and in the skills.
+set -euo pipefail
+
+# Config root, resolved from this script's own location so the repo works from
+# any clone path. setup.sh symlinks this script into ~/.local/bin, hence the
+# symlink chase. AGENT_CONFIG_DIR overrides it (must point at the repo root).
+SELF="${BASH_SOURCE[0]}"; _hops=0
+while [ -L "$SELF" ] && [ "$_hops" -lt 40 ]; do
+    _hops=$((_hops + 1)); LINK="$(readlink "$SELF")"
+    case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
+done
+CONFIG="${AGENT_CONFIG_DIR:-$(cd "$(dirname "$SELF")" && pwd)}"
+
+sub="${1:-status}"
+[ $# -gt 0 ] && shift
+case "$sub" in
+    status) exec node "$CONFIG/tools/ai-status.mjs" "$@" ;;
+    init) exec bash "$CONFIG/ai-init" "$@" ;;
+    task) exec bash "$CONFIG/ai-worktree" "$@" ;;
+    survey|lint|skeleton|context) exec bash "$CONFIG/ai-$sub" "$@" ;;
+    -h|--help|help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) echo "ai: unknown command: $sub (status, init, task, survey, lint, skeleton, context)" >&2; exit 2 ;;
+esac

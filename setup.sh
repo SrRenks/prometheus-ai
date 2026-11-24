@@ -116,7 +116,7 @@ fi
 
 # ── per-project commands ─────────────────────────────────────────────────────
 mkdir -p "$HOME/.local/bin"
-for cmd in ai-init ai-context ai-survey ai-lint ai-skeleton ai-worktree; do
+for cmd in ai ai-init ai-context ai-survey ai-lint ai-skeleton ai-worktree; do
     ln -sfn "$SRC/$cmd" "$HOME/.local/bin/$cmd"
     echo "  linked: ~/.local/bin/$cmd -> $SRC/$cmd"
 done
@@ -129,7 +129,7 @@ echo "  Codex       : ~/.codex/AGENTS.md"
 echo "  Gemini CLI  : ~/.gemini/GEMINI.md"
 echo "  Cursor      : ~/.cursor/rules"
 echo "  Generic     : ~/.agents/AGENTS.md"
-echo "  Commands    : ~/.local/bin/ai-init, ai-context, ai-survey, ai-lint, ai-skeleton, ai-worktree"
+echo "  Commands    : ~/.local/bin/ai (status, init, task, ...), ai-init, ai-context, ai-survey, ai-lint, ai-skeleton, ai-worktree"
 echo "  Git identity : ~/.config/git/identity (conditional include from ~/.gitconfig)"
 echo ""
 echo "dsh (DeepSeek Harness) is installed separately:"

@@ -46,6 +46,7 @@ import { randomUUID } from 'node:crypto'
 
 import { coversWhole, createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
 import { createSeamFor } from './docs-gate-seam.mjs'
+import { registerFlowRouter } from './flow-router-dsh.mjs'
 import { loadStore, recordRead, seedLedger, storeEnabled } from './docs-gate-store.mjs'
 import {
   absolutePath,
@@ -351,7 +352,8 @@ async function holdsContent(state, doc, seam) {
  * Register the read-before-mutate gate.
  *
  * @param ctx - the cordis context.
- * @param config - optional `disabled`, `repoRoots` and `requireInit`.
+ * @param config - optional `disabled`, `repoRoots`, `requireInit`, and
+ *   `flowRouter: false` to turn off the next-step notes and the branch-switch block.
  */
 export function apply(ctx, config = {}) {
   if (config.disabled === true) return
@@ -381,6 +383,17 @@ export function apply(ctx, config = {}) {
   // On unless the preset config or the environment switches it off.
   const requireInit = config.requireInit !== false && process.env.DOCS_GATE_REQUIRE_INIT !== '0'
   const store = createStore({ seamFor, repoRoots, extraDocs: config.extraDocs ?? [], creditStore: creditStorePath, requireInit, log })
+  // The next-step notes and the branch-switch block (flow-router-dsh.mjs).
+  if (config.flowRouter !== false) {
+    // Its own logger, so a router warning cannot use up the gate's one warning.
+    registerFlowRouter(ctx, (message) => {
+      try {
+        ctx.logger?.warn?.(`${name}: ${message}`)
+      } catch {
+        // Logging is best-effort.
+      }
+    })
+  }
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     try {

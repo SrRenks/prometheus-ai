@@ -23,7 +23,11 @@
  *
  * WIRING (agents/claude-code/settings.json): PreToolUse on the mutating tools
  * and Bash, PostToolUse on Read and Bash, SessionStart on `startup`, `compact`
- * and `clear`. It costs no model tokens until it denies.
+ * and `clear`, and UserPromptSubmit. It costs no model tokens until it denies,
+ * except the flow-router notes (`flow-router.mjs`): one line at startup chosen
+ * from the repository's state, and one when a prompt names a GitHub issue or PR
+ * or asks for an audit, each said once per session. The same module denies a
+ * branch switch while ai-worktree tasks are running.
  *
  * FAILURE POSTURE, as in dsh: a coding error or unreadable input fails open and
  * says so to the user; an unreadable config checkout fails closed for
@@ -34,7 +38,7 @@
  */
 import { existsSync, readFileSync, realpathSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { coversWhole } from '../../dsh/presets/renks/docs-gate-credit.mjs'
@@ -58,6 +62,7 @@ import {
 } from '../../dsh/presets/renks/docs-gate-policy.mjs'
 import { createSeamFor } from '../../dsh/presets/renks/docs-gate-seam.mjs'
 import { loadStore, recordRead, storeEnabled, storeHolds } from '../../dsh/presets/renks/docs-gate-store.mjs'
+import { branchSwitch, gatherFacts, isGitRef, promptHint, sessionHint, switchDenial } from '../../dsh/presets/renks/flow-router.mjs'
 import { openLedger, pruneStale, sessionKey, withLock } from './docs-gate-ledger.mjs'
 
 /** Claude Code tool names mapped to the dsh names the classifier knows. */
@@ -200,8 +205,21 @@ function holdsNow(ctx, doc, reused) {
   return true
 }
 
+/** A branch switch while ai-worktree tasks run is denied before any doc check. */
+async function switchBlock(input, ctx) {
+  const command = input.tool_name === 'Bash' ? input.tool_input?.command : undefined
+  if (typeof command !== 'string') return undefined
+  const found = branchSwitch(command, (name, dir) => isGitRef(dir === undefined ? ctx.cwd : resolve(ctx.cwd, dir), name))
+  if (found === undefined) return undefined
+  const where = found.dir === undefined ? ctx.cwd : resolve(ctx.cwd, found.dir)
+  const reason = switchDenial(await gatherFacts(where))
+  return reason === undefined ? undefined : deny(reason)
+}
+
 /** PreToolUse: allow, or deny with the docs still unread. */
 async function preToolUse(input, ctx) {
+  const blocked = await switchBlock(input, ctx)
+  if (blocked !== undefined) return blocked
   const exec = toExec(input)
   if (exec === undefined) return {}
   let resolved
@@ -295,10 +313,22 @@ async function sessionStart(input, ctx) {
   pruneStale(ctx.stateDir)
   if (input.source === 'compact' || input.source === 'clear') ctx.ledger.reset()
   if (input.source !== 'startup') return {}
+  const notes = []
   const resolved = await resolveDocs(ctx.cwd, ctx.env).catch(() => undefined)
-  if (resolved === undefined || resolved.docs.length === 0 || !pendingInit(resolved, ctx.env)) return {}
-  const note = `docs-gate: ${resolved.boundary} is a git workspace with no .ai/project.md, so it has not been set up with the shared standard (AGENTS.md section 1). Changes there are denied until \`ai-init\` runs, which needs the user's approval; reading and exploring are open.`
-  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: note } }
+  if (resolved !== undefined && resolved.docs.length > 0 && pendingInit(resolved, ctx.env)) {
+    notes.push(`docs-gate: ${resolved.boundary} is a git workspace with no .ai/project.md, so it has not been set up with the shared standard (AGENTS.md section 1). Changes there are denied until \`ai-init\` runs, which needs the user's approval; reading and exploring are open.`)
+  }
+  const flow = sessionHint(await gatherFacts(ctx.cwd))
+  if (flow !== undefined) notes.push(flow)
+  if (notes.length === 0) return {}
+  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: notes.join('\n') } }
+}
+
+/** UserPromptSubmit: a flow-router note, once per session per note; it never blocks. */
+function userPromptSubmit(input, ctx) {
+  const hint = promptHint(input.prompt)
+  if (hint === undefined || !ctx.ledger.firstTime(hint.id)) return {}
+  return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hint.text } }
 }
 
 /** Where the ledgers live. */
@@ -340,6 +370,7 @@ export async function main(raw, env) {
   if (input.hook_event_name === 'PreToolUse') return preToolUse(input, ctx)
   if (input.hook_event_name === 'PostToolUse') return postToolUse(input, ctx)
   if (input.hook_event_name === 'SessionStart') return sessionStart(input, ctx)
+  if (input.hook_event_name === 'UserPromptSubmit') return userPromptSubmit(input, ctx)
   return {}
 }
 
