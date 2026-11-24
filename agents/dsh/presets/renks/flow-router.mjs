@@ -30,8 +30,9 @@ const TASK_LOCK = 'ai-worktree: task '
 // as node_modules/x#3 or v1.2/3.4#5 do not fit it.
 const GITHUB_REF = /(?<![\w/.-])([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\/[\w.-]+)#(\d+)\b/
 const GITHUB_URL = /\bhttps?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)/
-// Words, not parts of a path or a file name such as core/docs/onboarding.md.
-const AUDIT_WORDS = /(?<![\w/.-])(audit|audits|auditing|auditoria|auditorias|auditar|onboard|onboarding)(?![\w/.-]*\w)/i
+// Words, not parts of a path or a file name. "onboarding" is left out: over 530
+// real prompts it named a business flow, not an audit.
+const AUDIT_WORDS = /(?<![\w/.-])(audit|audits|auditing|auditoria|auditorias|auditar)(?![\w/.-]*\w)/i
 
 /** Run git read-only in `cwd`; resolves to stdout, or undefined on any failure. */
 function git(cwd, args) {

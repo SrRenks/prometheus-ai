@@ -35,7 +35,7 @@ test('prompt notes: GitHub issues and PRs point to kickoff, audit words to the a
   assert.equal(promptHint('fix the typo in README'), undefined)
   assert.equal(promptHint('use C# and the #3 option'), undefined, 'a bare #3 is not a ticket')
   assert.equal(promptHint('path src/a.ts#L10'), undefined, 'a file anchor is not a ticket')
-  for (const text of ['see node_modules/x#3', 'tag v1.2/3.4#5', 'read core/docs/onboarding.md', 'a/b/c#4']) assert.equal(promptHint(text), undefined, text)
+  for (const text of ['see node_modules/x#3', 'tag v1.2/3.4#5', 'read core/docs/audit.md', 'a/b/c#4', 'a plataforma de onboarding de um cliente']) assert.equal(promptHint(text), undefined, text)
   assert.equal(promptHint('vercel/next.js#123').id, 'ticket:vercel/next.js#123', 'a dotted repository name is valid')
   assert.equal(promptHint(''), undefined)
 })

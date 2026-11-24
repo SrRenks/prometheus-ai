@@ -332,7 +332,8 @@ Each step below rests on a benchmarked study, with its strength stated:
 | `quality-audit` proves findings by reproduction or trace, uses intent text, filters for action | path-grounded triage of static-analysis alarms removed 94 to 98% of false positives while dropping 12 to 25% of real bugs; intent text raised review F1 from 36 to 64 on older models; an LLM correctness judge had minimal impact in one production system | mixed: single or private datasets, consistent in direction; applying them to audits is a judgement |
 
 `ai-skeleton` matched Python's own parser on all 7,607 definitions of six local
-repositories (precision and recall 1.000). Other languages are matched by
+repositories (precision and recall 1.000), and the TypeScript compiler on 516 of
+521 definitions in a client repository's TS/TSX files (precision and recall 0.990). Other languages are matched by
 pattern and checked only by the spec.
 
 ### How the flow starts by itself
