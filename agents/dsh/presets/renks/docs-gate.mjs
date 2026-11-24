@@ -53,12 +53,12 @@ import {
   commandOf,
   cwdOf,
   defaultRepoRoots,
-  INIT_DOC,
   denyMutation,
   denyUninitialized,
   denyUnresolved,
   describeError,
   fileExists,
+  findProjectDoc,
   findWorkspaceRoot,
   isMutationTool,
   joinPath,
@@ -306,8 +306,8 @@ function countDenial(state, exec) {
 async function initDenial(store, state, call, exec) {
   if (!needsInit({ boundary: state.boundary, docs: state.docs, configRoot: state.configRoot, required: store.requireInit })) return undefined
   const seam = store.seamFor(cwdOf(exec.agent) ?? process.cwd(), exec.signal)
-  const projectDoc = normalizePath(joinPath(state.boundary, INIT_DOC))
-  if (await fileExists(seam, projectDoc, exec.signal)) {
+  const projectDoc = await findProjectDoc(seam, state.boundary, exec.signal)
+  if (projectDoc !== undefined) {
     state.docs.push({ id: 'project', path: projectDoc, display: projectDoc })
     return undefined
   }

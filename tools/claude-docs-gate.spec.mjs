@@ -473,6 +473,24 @@ describe('init check', () => {
     assert.ok(!denied(hook(fx, write)))
   })
 
+  test('a linked worktree uses the main checkout\'s .ai/project.md', () => {
+    const main = join(fx.base, 'app')
+    const wt = join(main, '.worktrees/task')
+    mkdirSync(join(main, '.git/worktrees/task'), { recursive: true })
+    mkdirSync(join(main, '.ai'))
+    writeFileSync(join(main, '.ai/project.md'), '# p\n')
+    mkdirSync(wt, { recursive: true })
+    writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git/worktrees/task')}\n`)
+    const write = { ...pre('Write', { file_path: join(wt, 'README.md') }), cwd: wt }
+    for (const id of ['principles', ...CODE_TIER]) read(fx, fx.doc(id), { cwd: wt })
+    const r = hook(fx, write)
+    assert.ok(denied(r))
+    assert.doesNotMatch(reason(r), /has no \.ai/)
+    assert.match(reason(r), /app\/\.ai\/project\.md/)
+    read(fx, join(main, '.ai/project.md'), { cwd: wt })
+    assert.ok(!denied(hook(fx, write)))
+  })
+
   test('a symlink under .ai/ cannot carry a setup write out of it', () => {
     mkdirSync(join(fresh, '.ai'))
     mkdirSync(join(fresh, 'src'))

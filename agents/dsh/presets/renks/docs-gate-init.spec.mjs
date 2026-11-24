@@ -5,8 +5,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { classifyCall, needsInit, optOutPaths, setsUpInit } from './docs-gate-policy.mjs'
-import { CORE_DOC_PATHS, REPO, WORKSPACE, fakeAgent, fakeResolve, mount, readDoc } from './docs-gate.testkit.mjs'
+import { classifyCall, mainCheckoutRoot, needsInit, optOutPaths, setsUpInit } from './docs-gate-policy.mjs'
+import { CORE_DOC_PATHS, REPO, WORKSPACE, fakeAgent, fakeResolve, mount, readDoc, resetFileContent, setFileContent } from './docs-gate.testkit.mjs'
 
 const BASE_FILES = [...CORE_DOC_PATHS, `${WORKSPACE}/.git/HEAD`]
 const WRITE = { name: 'write', arguments: { file_path: `${WORKSPACE}/README.md` } }
@@ -101,4 +101,29 @@ test('the per-clone opt-out marker and the config repo itself are exempt', async
   const inRepo = fakeAgent('s-config', `${REPO}/tools`)
   for (const path of CORE_DOC_PATHS) await readDoc(own, inRepo, path)
   assert.deepEqual(await own.pre({ name: 'write', arguments: { file_path: `${REPO}/README.md` }, agent: inRepo }), { kind: 'allow' })
+})
+
+test('mainCheckoutRoot: a linked worktree shares the main checkout, a submodule does not', () => {
+  assert.equal(mainCheckoutRoot('/r/.worktrees/t', 'gitdir: /r/.git/worktrees/t\n'), '/r')
+  assert.equal(mainCheckoutRoot('/elsewhere/t', 'gitdir: ../../r/.git/worktrees/t'), '/r')
+  assert.equal(mainCheckoutRoot('/r/sub', 'gitdir: ../.git/modules/sub'), undefined)
+  assert.equal(mainCheckoutRoot('/w/t', 'gitdir: /srv/bare.git/worktrees/t'), undefined, 'a bare repository has no checkout')
+  assert.equal(mainCheckoutRoot('/r', undefined), undefined)
+})
+
+test('a linked worktree uses the main checkout\'s .ai/project.md', async (t) => {
+  const main = '/home/u/Projects/app'
+  const tree = `${main}/.worktrees/task`
+  setFileContent(`${tree}/.git`, `gitdir: ${main}/.git/worktrees/task\n`)
+  t.after(() => resetFileContent())
+  const h = mount({ files: [...CORE_DOC_PATHS, `${tree}/.git`, `${main}/.ai/project.md`], config: { requireInit: true } })
+  const agent = fakeAgent('s-worktree', tree)
+  for (const path of CORE_DOC_PATHS) await readDoc(h, agent, path)
+  const write = { name: 'write', arguments: { file_path: `${tree}/README.md` }, agent }
+  const denied = await h.pre(write)
+  assert.equal(denied.kind, 'deny', 'the shared project doc is read like any other')
+  assert.match(denied.reason, new RegExp(`${main}/\\.ai/project\\.md`))
+  assert.doesNotMatch(denied.reason, /has no \.ai/)
+  await readDoc(h, agent, `${main}/.ai/project.md`)
+  assert.deepEqual(await h.pre(write), { kind: 'allow' })
 })

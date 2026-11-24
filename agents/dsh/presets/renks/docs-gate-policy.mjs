@@ -27,7 +27,7 @@ import {
 } from './docs-gate-target.mjs'
 
 import { REQUIRED_DOCS } from './docs-gate-tiers.mjs'
-import { INIT_EXIT, uninitializedLines } from './docs-gate-init.mjs'
+import { INIT_EXIT, mainCheckoutRoot, uninitializedLines } from './docs-gate-init.mjs'
 
 /** Project-local doc required when the workspace has one. */
 const PROJECT_DOC_REPO_PATH = '.ai/project.md'
@@ -311,6 +311,27 @@ export async function resolveRequiredDocs({ seam, workspaceRoot, repoRoots, extr
 }
 
 /**
+ * Where this workspace's `.ai/project.md` is: its own, or in a linked worktree
+ * the main checkout's, since `.ai/` is local and a new worktree has none.
+ *
+ * @param seam - the host fs service surface.
+ * @param workspaceRoot - absolute workspace root.
+ * @param signal - cancellation signal.
+ * @returns the absolute path of the project doc, or undefined.
+ */
+export async function findProjectDoc(seam, workspaceRoot, signal) {
+  const root = normalizePath(workspaceRoot)
+  const own = normalizePath(joinPath(root, PROJECT_DOC_REPO_PATH))
+  if (await fileExists(seam, own, signal)) return own
+  const dotGit = normalizePath(joinPath(root, '.git'))
+  if (!await fileExists(seam, dotGit, signal)) return undefined
+  const main = mainCheckoutRoot(root, await seam.readText(dotGit).catch(() => undefined))
+  if (main === undefined) return undefined
+  const shared = normalizePath(joinPath(main, PROJECT_DOC_REPO_PATH))
+  return await fileExists(seam, shared, signal) ? shared : undefined
+}
+
+/**
  * Resolve the workspace-local docs: `.ai/project.md` and any configured extras.
  *
  * @param options.seam - the host fs service surface.
@@ -322,10 +343,8 @@ export async function resolveRequiredDocs({ seam, workspaceRoot, repoRoots, extr
 async function resolveWorkspaceDocs({ seam, workspaceRoot, extraDocs, signal }) {
   if (workspaceRoot === undefined) return { projectDocs: [] }
   const projectDocs = []
-  const projectDoc = normalizePath(joinPath(workspaceRoot, PROJECT_DOC_REPO_PATH))
-  if (await fileExists(seam, projectDoc, signal)) {
-    projectDocs.push({ id: 'project', path: projectDoc, display: `${normalizePath(workspaceRoot)}/.ai/project.md` })
-  }
+  const projectDoc = await findProjectDoc(seam, workspaceRoot, signal)
+  if (projectDoc !== undefined) projectDocs.push({ id: 'project', path: projectDoc, display: projectDoc })
   for (const extra of extraDocs) {
     const path = normalizePath(joinPath(workspaceRoot, extra))
     if (await fileExists(seam, path, signal)) projectDocs.push({ id: `extra:${extra}`, path, display: extra })

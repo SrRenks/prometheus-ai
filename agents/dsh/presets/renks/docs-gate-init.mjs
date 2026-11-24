@@ -68,6 +68,27 @@ export function optOutPaths(boundary, dotGit = undefined) {
   return [`${gitDir}/${OPT_OUT_MARKER}`, `${normalizePath(`${gitDir}/../..`)}/${OPT_OUT_MARKER}`]
 }
 
+/**
+ * The main checkout of a linked worktree, whose `.ai/` the worktree shares.
+ *
+ * `.ai/` is never committed, so a new worktree has none of its own. Its `.git`
+ * file names `<common>/worktrees/<name>`; the main checkout is the parent of a
+ * `<common>` called `.git`. A submodule's gitdir has no `worktrees` segment and
+ * a bare repository's common dir is not `.git`: both have no main checkout.
+ *
+ * @param boundary - the workspace root.
+ * @param dotGit - the text of `<boundary>/.git` when it is a file, or undefined.
+ * @returns the main checkout's absolute root, or undefined.
+ */
+export function mainCheckoutRoot(boundary, dotGit) {
+  const match = dotGit === undefined ? null : /^gitdir:\s*(.+)$/m.exec(dotGit)
+  if (match === null) return undefined
+  const gitDir = absolutePath(match[1].trim(), normalizePath(boundary))
+  if (!/\/worktrees\/[^/]+$/.test(gitDir)) return undefined
+  const common = normalizePath(`${gitDir}/../..`)
+  return common.endsWith('/.git') ? normalizePath(`${common}/..`) : undefined
+}
+
 /** The real path of `path`: its nearest existing ancestor resolved, plus the rest. */
 function realOf(path, realpath) {
   let current = path
