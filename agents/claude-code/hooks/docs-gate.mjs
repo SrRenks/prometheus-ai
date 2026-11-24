@@ -205,6 +205,9 @@ function holdsNow(ctx, doc, reused) {
   return true
 }
 
+/** flow-router is on unless FLOW_ROUTER_DISABLED=1; docs-gate itself is unaffected. */
+const routerOn = env => env.FLOW_ROUTER_DISABLED !== '1'
+
 /** A branch switch while ai-worktree tasks run is denied before any doc check. */
 async function switchBlock(input, ctx) {
   const command = input.tool_name === 'Bash' ? input.tool_input?.command : undefined
@@ -218,7 +221,7 @@ async function switchBlock(input, ctx) {
 
 /** PreToolUse: allow, or deny with the docs still unread. */
 async function preToolUse(input, ctx) {
-  const blocked = await switchBlock(input, ctx)
+  const blocked = routerOn(ctx.env) ? await switchBlock(input, ctx) : undefined
   if (blocked !== undefined) return blocked
   const exec = toExec(input)
   if (exec === undefined) return {}
@@ -318,7 +321,7 @@ async function sessionStart(input, ctx) {
   if (resolved !== undefined && resolved.docs.length > 0 && pendingInit(resolved, ctx.env)) {
     notes.push(`docs-gate: ${resolved.boundary} is a git workspace with no .ai/project.md, so it has not been set up with the shared standard (AGENTS.md section 1). Changes there are denied until \`ai-init\` runs, which needs the user's approval; reading and exploring are open.`)
   }
-  const flow = sessionHint(await gatherFacts(ctx.cwd))
+  const flow = routerOn(ctx.env) ? sessionHint(await gatherFacts(ctx.cwd)) : undefined
   if (flow !== undefined) notes.push(flow)
   if (notes.length === 0) return {}
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: notes.join('\n') } }
@@ -326,7 +329,7 @@ async function sessionStart(input, ctx) {
 
 /** UserPromptSubmit: a flow-router note, once per session per note; it never blocks. */
 function userPromptSubmit(input, ctx) {
-  const hint = promptHint(input.prompt)
+  const hint = routerOn(ctx.env) ? promptHint(input.prompt) : undefined
   if (hint === undefined || !ctx.ledger.firstTime(hint.id)) return {}
   return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hint.text } }
 }

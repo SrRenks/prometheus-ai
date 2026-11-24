@@ -561,3 +561,10 @@ test('an unwritable state dir under procfs cannot hang the hook (recursive mkdir
   assert.ok(denied(r), 'the deny still stands')
   assert.ok(Date.now() - start < 5000, `took ${Date.now() - start}ms`)
 })
+
+test('FLOW_ROUTER_DISABLED=1 turns off the notes and the switch block, and leaves docs-gate on', () => {
+  const fx = fixture()
+  const off = { FLOW_ROUTER_DISABLED: '1' }
+  assert.equal(hook(fx, { hook_event_name: 'UserPromptSubmit', prompt: 'start acme/shop#1' }, off).json, undefined)
+  assert.ok(denied(hook(fx, pre('Write', { file_path: join(fx.ws, 'README.md') }), off)), 'docs-gate still denies')
+})

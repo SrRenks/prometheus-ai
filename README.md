@@ -371,9 +371,9 @@ For you at the terminal, `ai status` prints the same state and the next
 command, and `ai init`, `ai task new|list|remove` and `ai survey|lint|skeleton`
 route to the ai-* commands.
 
-To turn the notes and the block off: `DOCS_GATE_DISABLED=1` disables the whole
-Claude Code hook, and `flowRouter: false` in the dsh preset config disables the
-router there. Both fail open: an error in a note or in the switch check lets the
+To turn the notes and the block off: `FLOW_ROUTER_DISABLED=1` disables only the
+router in Claude Code (`DOCS_GATE_DISABLED=1` disables the whole hook), and
+`flowRouter: false` in the dsh preset config disables the router there. Both fail open: an error in a note or in the switch check lets the
 prompt or the command through.
 
 ### Several tasks in one repository
