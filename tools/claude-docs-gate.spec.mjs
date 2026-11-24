@@ -172,6 +172,24 @@ describe('denial and tiers', () => {
     assert.ok(!denied(hook(fx, write, token)))
   })
 
+  test('token mode lifts an .ai/ write with one read of the contract', () => {
+    // The registry names AGENTS.md as the `.ai/` contract (id `agents-index`).
+    // Token mode used to add a second entry for the same path under id
+    // `agents`, and the ledger credits only the first match, so the contract
+    // requirement could never be satisfied and `.ai/` writes stayed denied.
+    writeFileSync(join(fx.cfg, 'AGENTS.md'), '# AGENTS\n')
+    const claudeDir = join(fx.base, 'claude')
+    mkdirSync(claudeDir)
+    writeFileSync(join(fx.base, 'CLAUDE.token.md'), 'pointer\n')
+    symlinkSync(join(fx.base, 'CLAUDE.token.md'), join(claudeDir, 'CLAUDE.md'))
+    const token = { CLAUDE_CONFIG_DIR: claudeDir }
+    const write = pre('Write', { file_path: join(fx.ws, '.ai/context/domain.md') })
+
+    readAll(fx, ['principles'], token)
+    read(fx, join(fx.cfg, 'AGENTS.md'), token)
+    assert.ok(!denied(hook(fx, write, token)), 'one read of the contract must lift the .ai/ write')
+  })
+
   test('a doc edited after the read loses its credit', () => {
     readAll(fx, CODE_TIER)
     writeFileSync(fx.doc('complexity'), '# complexity\n\nNew budget.\n')

@@ -121,7 +121,18 @@ async function resolveDocs(cwd, env) {
   // sure the agent saw Section 0 before it changed anything.
   const agents = repoRoot === undefined ? undefined : join(repoRoot, 'AGENTS.md')
   if (agents !== undefined && configDocs.length > 0 && tokenMode(env) && readText(agents) !== undefined) {
-    docs.unshift({ id: 'agents', path: agents, display: '~/.config/prometheus-ai/AGENTS.md', tier: 'core' })
+    // The registry already lists AGENTS.md as the `.ai/` contract. Adding a
+    // second entry for the same path under another id splits the credit: the
+    // ledger records the read against whichever id matches first, so the other
+    // stays unread and a `.ai/` write can never be lifted. Raise the registered
+    // doc's tier instead, which is what token mode means: the contract is
+    // required on every change.
+    const registered = docs.find(doc => doc.path === agents || realOrSelf(doc.path) === realOrSelf(agents))
+    if (registered === undefined) {
+      docs.unshift({ id: 'agents', path: agents, display: '~/.config/prometheus-ai/AGENTS.md', tier: 'core' })
+    } else {
+      registered.tier = 'core'
+    }
   }
   return { boundary: found.found === true ? root : undefined, docs, configRoot: repoRoot }
 }
