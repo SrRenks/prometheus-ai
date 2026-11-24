@@ -26,12 +26,12 @@ This config is READ-ONLY for agents. Projects do not copy it: `ai-init` creates 
 - `agents/dsh/presets/renks/` - the DEFAULT dsh preset (mirrors the live roster `~/.dsh/.agent-presets/renks/`). Evidence-based instruction delivery: no full AGENTS.md digest and no skill-catalog injection; `docs-gate.mjs` (with `docs-gate-policy.mjs`, `docs-gate-target.mjs`, the shell reader `docs-gate-shell.mjs`, its rules `docs-gate-bash.mjs`, the interpreter scan `docs-gate-code.mjs`, the init check `docs-gate-init.mjs`, `docs-gate-tiers.mjs`, the credit rules in `docs-gate-credit.mjs`, the filesystem seam in `docs-gate-seam.mjs` and the harness `docs-gate.testkit.mjs`) DENIES mutating tool calls until the docs its selectors require have been read: `principles.md` for any change, the code-tier rules for source, the one language guide matching the changed file, and `git-workflow.md` only at the commit act (an audit of recorded sessions found about a tenth had read any core behavioural doc, so guidance became a precondition), and `skill-search.mjs` exposes `skill_search`/`skill_load`. Scale policy: search/load stays the default as the catalog grows; do not re-add catalog injection beyond ~3-5 skills.
 - `agents/claude-code/` - CLAUDE.md (subscription mode: imports AGENTS.md), CLAUDE.token.md (token mode: points at it), claude-code.md (the Claude Code rules both import), settings.json, hooks, rules, commands (commands symlink to `skills/`). `setup.sh --mode` picks which CLAUDE file is linked.
 - `agents/gemini/` - GEMINI.md wrapper.
-- `skills/` - shared procedures (plan, onboard, context, review, ci, ship, extend-config), symlinked to both `~/.dsh/skills` and `~/.claude/skills`.
+- `skills/` - shared procedures (plan, onboard, audit, quality-audit, kickoff, context, review, ship, ci, debug, worktrees, dispatch, extend-config, pentest), symlinked to both `~/.dsh/skills` and `~/.claude/skills`.
 - The experimental `liangshen` preset (minimal-bootstrap anchoring) lives in `~/.dsh/.agent-presets/liangshen/` and is not tracked here.
 
 ## Reference library - `core/docs/`
 Shared across all projects; read on demand (AGENTS.md §3). Never copied into a project - a project's `docs/` holds project docs only.
-- `architecture.md`, `coding-standards.md`, `testing.md`, `security.md`, `complexity.md`, `coupling.md`, `debugging.md`, `maintainability.md`, `performance.md`, `development-workflow.md`, `validation-checklist.md`, `dependency-policy.md`, `git-workflow.md`, `onboarding.md`
+- `architecture.md`, `coding-standards.md`, `testing.md`, `security.md`, `pentest.md`, `pentest-playbook.md`, `complexity.md`, `coupling.md`, `debugging.md`, `maintainability.md`, `performance.md`, `development-workflow.md`, `validation-checklist.md`, `dependency-policy.md`, `git-workflow.md`, `onboarding.md`
 - `evals.md` - retained eval set (anchor checks + task set) to run before changing the default preset or shared rules
 - `ai-directory.md` - the `.ai/` structure standard (files, names, creation rules)
 - `project-docs.md` - the committed docs/ + README standard (templates, naming, workflow)
@@ -43,7 +43,7 @@ Shared across all projects; read on demand (AGENTS.md §3). Never copied into a 
 
 ## Agent support
 - `core/principles.md` - universal agent principles (Karpathy/llm-rigor + operational rules); complexity budgets single-sourced in `core/docs/complexity.md`
-- `skills/` - shared procedures (dsh + Claude Code): plan, onboard, context, review, ci, ship, extend-config
+- `skills/` - shared procedures (dsh + Claude Code): plan, onboard, audit, quality-audit, kickoff, context, review, ship, ci, debug, worktrees, dispatch, extend-config, pentest
 - `agents/claude-code/rules/` - scoped rules (dual frontmatter for Claude Code + Cursor): go, python, rust, security, testing
 - `agents/claude-code/commands/` - slash commands (symlinks into skills/): `ci`, `review`, `ship`
 - `agents/claude-code/hooks/` - lifecycle hooks: `docs-gate.mjs` with `docs-gate-ledger.mjs` (the dsh gate as a hook, importing the preset's modules), `session-init` (opt-in), `lint-check`, `block-danger`
