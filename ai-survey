@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# ai-survey - Print a computed, agent-facing survey of the current project (git state,
+# files, markers, churn, optional sibling repos). Writes nothing.
+#
+# Usage: ai-survey [--siblings <dir>] [--since <git date>] [--top N]
+set -euo pipefail
+
+# Config root, resolved from this script's own location so the repo works from
+# any clone path. setup.sh symlinks this script into ~/.local/bin, hence the
+# symlink chase. AGENT_CONFIG_DIR overrides it (must point at the repo root).
+SELF="${BASH_SOURCE[0]}"; _hops=0
+while [ -L "$SELF" ] && [ "$_hops" -lt 40 ]; do
+    _hops=$((_hops + 1)); LINK="$(readlink "$SELF")"
+    case "$LINK" in /*) SELF="$LINK" ;; *) SELF="$(dirname "$SELF")/$LINK" ;; esac
+done
+CONFIG="${AGENT_CONFIG_DIR:-$(cd "$(dirname "$SELF")" && pwd)}"
+
+exec node "$CONFIG/tools/ai-survey.mjs" "$@"
