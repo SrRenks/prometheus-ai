@@ -215,6 +215,11 @@ export function mount({
   }
   return {
     pre: (exec) => call('tools/pre-execute', exec, async () => ({ kind: 'allow' })),
+    post: (exec, result = { isError: false }) => {
+      const handlers = listeners.get('tools/post-execute') ?? []
+      const dispatch = async (index) => (index >= handlers.length ? { kind: 'accept' } : handlers[index](exec, result, () => dispatch(index + 1)))
+      return dispatch(0)
+    },
     warns,
     listeners,
   }

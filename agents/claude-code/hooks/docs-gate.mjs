@@ -51,6 +51,7 @@ import {
   needsInit,
   normalizePath,
   optOutPaths,
+  partialReadNote,
   requiredDocsFor,
   resolveRequiredDocs,
   setsUpInit,
@@ -265,8 +266,7 @@ function creditRead(input, ctx, docs) {
     credit(ctx, doc, content)
     return {}
   }
-  const note = `docs-gate: ${doc.path} was read in part (offset or limit set), so it is not credited. A gated change needs the whole file read once.`
-  return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: note } }
+  return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: partialReadNote(doc.path) } }
 }
 
 /** PostToolUse: credit a successful Read, or a Bash whose stdout holds a whole doc. */

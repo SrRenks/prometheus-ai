@@ -123,7 +123,7 @@ describe('denial and tiers', () => {
   test('a read of part of a doc is not a credit, and both the read and the denial say so', () => {
     // The fixture docs are three lines long, so a one-line limit is a slice.
     const slices = CODE_TIER.map(id => read(fx, fx.doc(id), { tool_input: { file_path: fx.doc(id), offset: 1, limit: 1 } }))
-    for (const r of slices) assert.match(r.json?.hookSpecificOutput?.additionalContext ?? '', /read in part/)
+    for (const r of slices) assert.match(r.json?.hookSpecificOutput?.additionalContext ?? '', /covered part of it/)
     read(fx, join(fx.ws, '.ai/project.md'))
     const r = hook(fx, pre('Edit', { file_path: join(fx.ws, 'x.ts') }))
     assert.ok(denied(r))

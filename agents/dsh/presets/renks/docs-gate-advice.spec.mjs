@@ -34,6 +34,43 @@ test('a read of part of a doc does not credit it, and the denial says why', asyn
   assert.deepEqual(await h.pre({ ...PROSE, agent }), { kind: 'allow' })
 })
 
+test('a slice is said next to that read result only', async () => {
+  const [path] = CORE_TIER_PATHS
+  setFileContent(path, TEN_LINES)
+  setFileContent(`${WORKSPACE}/notes.md`, TEN_LINES)
+  const h = mount()
+  const agent = fakeAgent('s-partial-note')
+  const slice = { name: 'read', arguments: { file_path: path, limit: 3 }, agent }
+  await h.pre(slice)
+  const noted = await h.post(slice)
+  assert.equal(noted.kind, 'accept', 'the result itself is kept')
+  assert.match(noted.additionalContexts[0].content[0].text, /covered part of it \(offset or limit set\)/)
+  assert.ok(Object.isFrozen(noted.additionalContexts[0].content[0]))
+  // A whole read, even one issued while the slice is pending, gets no note.
+  const whole = { name: 'read', arguments: { file_path: path }, agent }
+  await h.pre(whole)
+  assert.deepEqual(await h.post(whole), { kind: 'accept' })
+  // A failed read, a non-gated file, and a call that never passed pre-execute say nothing.
+  assert.deepEqual(await h.post(slice, { isError: true }), { kind: 'accept' })
+  const other = { name: 'read', arguments: { file_path: `${WORKSPACE}/notes.md`, limit: 3 }, agent }
+  await h.pre(other)
+  assert.deepEqual(await h.post(other), { kind: 'accept' })
+  assert.deepEqual(await h.post({ ...slice }), { kind: 'accept' })
+})
+
+test('the note keeps what later post-execute handlers attached', async () => {
+  const [path] = CORE_TIER_PATHS
+  setFileContent(path, TEN_LINES)
+  const h = mount()
+  const theirs = { id: 'x', role: 'user', content: [] }
+  h.listeners.get('tools/post-execute').push(async () => ({ kind: 'accept', additionalContexts: [theirs] }))
+  const slice = { name: 'read', arguments: { file_path: path, offset: 4 }, agent: fakeAgent('s-chain') }
+  await h.pre(slice)
+  const out = await h.post(slice)
+  assert.equal(out.additionalContexts.length, 2)
+  assert.equal(out.additionalContexts[1], theirs)
+})
+
 test('every denial names the stop exit; the third identical one says to stop retrying', async () => {
   const h = mount()
   const agent = fakeAgent('s-repeat')

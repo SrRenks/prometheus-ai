@@ -406,6 +406,11 @@ export function docLines(missing, partial, show) {
     .join('\n')
 }
 
+/** The note shown next to a read that covered only part of a gated doc. */
+export function partialReadNote(path) {
+  return `docs-gate: this read of ${path} covered part of it (offset or limit set), so it earned no credit. A gated change needs the whole file read once.`
+}
+
 /**
  * The closing advice of every denial.
  *

@@ -17,7 +17,8 @@
  *     at a median of 3 tool calls in. Numbers move as sessions accumulate;
  *     re-run tools/audit-instruction-reads.mjs rather than quoting these.
  *
- * WHAT THIS DOES. It observes `tools/pre-execute` and returns
+ * WHAT THIS DOES. It observes `tools/pre-execute` (and `tools/post-execute`,
+ * only to say that a read of a gated doc covered part of it) and returns
  * `{ kind: 'deny' }` for a MUTATING call until the session has read each
  * required doc once. The denial reaches the model as the tool result, so the
  * corrective instruction arrives exactly where the model is looking.
@@ -41,6 +42,8 @@
  * context.
  */
 
+import { randomUUID } from 'node:crypto'
+
 import { coversWhole, createLedger, isReadCall, wantedDoc } from './docs-gate-credit.mjs'
 import { createSeamFor } from './docs-gate-seam.mjs'
 import { loadStore, recordRead, seedLedger, storeEnabled } from './docs-gate-store.mjs'
@@ -62,6 +65,7 @@ import {
   needsInit,
   normalizePath,
   optOutPaths,
+  partialReadNote,
   pathOf,
   requiredDocsFor,
   resolveRequiredDocs,
@@ -206,6 +210,7 @@ async function creditRead(store, agent, exec, seam) {
   // can say why this doc is still listed.
   if (!coversWhole(exec.arguments, content)) {
     state.partial.add(doc.id)
+    sliceReads.set(exec, doc.path)
     return
   }
   state.partial.delete(doc.id)
@@ -386,4 +391,20 @@ export function apply(ctx, config = {}) {
       return next()
     }
   })
+
+  // A slice of a gated doc is said next to the tool result, so the agent learns
+  // it before the next change is denied for it, as in the Claude Code hook. The
+  // verdict is the one creditRead reached for this very call, not session state.
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const downstream = await next()
+    const path = sliceReads.get(exec)
+    if (path === undefined || result?.isError === true || downstream?.kind !== 'accept') return downstream
+    const text = { type: 'text', text: partialReadNote(path) }
+    const message = Object.freeze({ id: randomUUID(), role: 'user', source: Object.freeze({ kind: name }), content: Object.freeze([Object.freeze(text)]) })
+    const others = Array.isArray(downstream.additionalContexts) ? downstream.additionalContexts : []
+    return { ...downstream, additionalContexts: [message, ...others] }
+  })
 }
+
+/** Read calls that covered only part of a gated doc, with that doc's path. */
+const sliceReads = new WeakMap()
