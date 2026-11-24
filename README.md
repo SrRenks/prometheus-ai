@@ -857,6 +857,7 @@ inherit it.
 | `worktrees` | gives each task its own worktree with `ai-worktree`, so parallel tasks never share a checkout, then lands and cleans up the branch |
 | `dispatch` | splits independent work across parallel subagents and verifies each result before merging it |
 | `extend-config` | creates or updates files in this repo following the authoring spec |
+| `pentest` | runs an authorized offensive engagement behind the anonymity gate: scope, opsec, recon, exploitation, escalation, cleanup, report |
 
 ## Reference docs
 
@@ -872,6 +873,8 @@ point and names every shared doc with its path.
 | `testing.md` | unit, integration, and end-to-end tests, conventions, CI commands, quality gates |
 | `git-workflow.md` | branches, commits, pull requests, and identity resolution |
 | `security.md` | authentication, input validation, secrets, dependency review triggers |
+| `pentest.md` | offensive engagements: anonymity gate, rules of engagement, red team opsec, phases, takeover assessment, cleanup, reporting |
+| `pentest-playbook.md` | field techniques by target class: web and API, AD, cloud, host, social engineering, mobile, wireless, C2 |
 | `onboarding.md` | procedure for entering an existing project |
 | `ai-directory.md` | the `.ai/` structure standard |
 | `project-docs.md` | the committed `docs/` and README standard |

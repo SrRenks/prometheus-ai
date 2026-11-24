@@ -64,6 +64,7 @@ Read on demand; never copy them into projects. Paths below are relative to `~/.c
 - AI-writing tells (README/docs/comments/commit messages): `core/docs/ai-writing.md`
 - Testing: `core/docs/testing.md`
 - Security: `core/docs/security.md`
+- Pentesting and red team: `core/docs/pentest.md`
 - Complexity: `core/docs/complexity.md`
 - Coupling: `core/docs/coupling.md`
 - Debugging: `core/docs/debugging.md`
